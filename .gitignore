@@ -23,3 +23,8 @@ tools/riscv-tests/
 
 # Not-important notes
 mock-interview-log.md
+
+# Python Env
+.venv/
+__pycache__/
+.pytest_cache/

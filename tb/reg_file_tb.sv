@@ -1,4 +1,4 @@
-`timescale 1ps/1ps
+`timescale 1ns/10ps
 
 module reg_file_tb
     import core_types_pkg::*;
@@ -30,7 +30,7 @@ module reg_file_tb
     );
 
     localparam int CLK_PERIOD_NS = 10;
-    localparam int TIMEOUT_CYCLES = 80;
+    localparam int TIMEOUT_CYCLES = 200;
 
 `ifdef TRACE_VCD
     // The runner supplies an absolute path only when TRACE=1.
@@ -88,17 +88,49 @@ module reg_file_tb
     task automatic test_default_zero();
         apply_reg_file_defaults();
 
+        for (int idx = 1; idx < 32; idx++) begin
+            @(negedge clk);
+            rf_write_W = 1'b1;
+            rd_idx_W = ADDR_WIDTH'(idx);
+            WB_mux_result = 32'hFFFF_FFFF;
+            #1;
+
+            @(posedge clk);
+            #1
+
+            @(negedge clk);
+            rf_write_W = 1'b0;
+            rs1_idx_rf = ADDR_WIDTH'(idx);
+            #1
+
+            check_write_value("Reg value", idx, 32'hFFFF_FFFF, rs1_val_D);
+        end
+
+        @(negedge clk);
+        reset = 1;
+        #1;
+
         @(posedge clk);
-        rs1_idx_rf = 5'd2;
-        rs2_idx_rf = 5'd10;
+        #1;
+
+        @(negedge clk);
+        reset = 0;
         #1
 
+        for (int idx = 0; idx < 32; idx++) begin
+            @(negedge clk);
+            rs1_idx_rf = ADDR_WIDTH'(idx);
+            rs2_idx_rf = ADDR_WIDTH'(31 - idx);
+            #1;
+
         // Combinational read without clk waiting
-        check_value("default value rs1", 32'b0, rs1_val_D);
-        check_value("default value rs2", 32'b0, rs2_val_D);
+        check_write_value("default value rs1", idx, 32'b0, rs1_val_D);
+        check_write_value("default value rs2", 31 - idx, 32'b0, rs2_val_D);
+        end
+
     endtask 
 
-    // Clock Edge Control
+    // Synchronous Write
     task automatic test_reg_file_synchronous_write();
         apply_reg_file_defaults();
 
@@ -111,7 +143,7 @@ module reg_file_tb
         @(negedge clk);
         rf_write_W = 1'b1;
         rd_idx_W = 5'd5;
-        WB_mux_result = 32'd10;
+        WB_mux_result = 32'd100;
         #1;
 
         @(posedge clk);
@@ -122,18 +154,40 @@ module reg_file_tb
         rs1_idx_rf = 5'd5;
         #1;
 
-        check_value("rd value", 32'd10, rs1_val_D);
+        check_value("rd value", 32'd100, rs1_val_D);
     endtask 
 
     task automatic test_reg_file_combinational_read();
         apply_reg_file_defaults();
 
-        rs1_idx_rf = 5'd5;
+        @(negedge clk);
+        rd_idx_W = 5'd3;
+        rf_write_W = 1'b1;
+        WB_mux_result = 32'd200;
+        #1;
+
+        @(posedge clk);
+        #1;
+
+        @(negedge clk);
+        rf_write_W = 1'b0;
+        rs1_idx_rf = 5'd3;
         rs2_idx_rf = 5'd5;
+        #1;
+
+        check_value("Combinational read rs1 value", 32'd200, rs1_val_D);
+        check_value("Combinational read rs2 value", 32'd100, rs2_val_D);
+
+        @(posedge clk);
+        #1;
+
+        @(negedge clk);
+        rs1_idx_rf = 5'd5;
+        rs2_idx_rf = 5'd3;
         #1
 
-        check_value("Combinational read rs1 value", 32'd10, rs1_val_D);
-        check_value("Combinational read rs2 value", 32'd10, rs2_val_D);
+        check_value("Combinational read rs1 value", 32'd100, rs1_val_D);
+        check_value("Combinational read rs2 value", 32'd200, rs2_val_D);
     endtask 
 
     task automatic test_bypass();
@@ -163,6 +217,19 @@ module reg_file_tb
         check_value("Bypass value x7", 32'd30, rs1_val_D);
     endtask 
 
+    task automatic check_write_value(
+        input string name,
+        input int reg_number,
+        input logic [WORD_WIDTH - 1:0] expected_value,
+        input logic [WORD_WIDTH - 1:0] actual
+    );
+        if (actual !== expected_value) begin
+            $display("Reg x%0d", reg_number);
+            $fatal(1, "VALUE FAIL: %s expected %0d, got %0d",
+                   name, expected_value, actual);
+        end
+    endtask
+
     task automatic check_value(
         input string name,
         input logic [WORD_WIDTH - 1:0] expected_value,
@@ -172,6 +239,6 @@ module reg_file_tb
             $fatal(1, "VALUE FAIL: %s expected %0d, got %0d",
                    name, expected_value, actual);
         end
-    endtask 
+    endtask
 
 endmodule
