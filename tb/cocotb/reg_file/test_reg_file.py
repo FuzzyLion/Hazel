@@ -1,5 +1,5 @@
 import cocotb
-from cocotb.clock import Clock
+from cocotb.clock import Clock, Timer
 from cocotb.triggers import FallingEdge, RisingEdge, ReadOnly
 
 @cocotb.test()
@@ -108,7 +108,7 @@ async def test_reg_file(dut):
         f"Combinational read failed: rs1 x{dut.rs1_idx_rf.value} expected 100, got {acutal_rs1}"
     )
     assert acutal_rs2 == 200, (
-        f"COmbinational read failed: rs2 x{dut.rs2_idx_rf.value} expected 200, got {acutal_rs2}"
+        f"Combinational read failed: rs2 x{dut.rs2_idx_rf.value} expected 200, got {acutal_rs2}"
     )
     
     await FallingEdge(dut.clk)
@@ -135,16 +135,62 @@ async def test_reg_file(dut):
     await RisingEdge(dut.clk)
 
     await FallingEdge(dut.clk)
-    dut.rf_write_W.value = 1 & MASK_01
+    dut.rf_write_W.value = 0 & MASK_01 # When rf_write = 0, bypass will not activate
     dut.rs1_idx_rf.value = 7 & MASK_05
+    dut.rs2_idx_rf.value = 7 & MASK_05
     dut.rd_idx_W.value = 7 & MASK_05
     dut.WB_mux_result.value = 30 & MASK_32
 
     await ReadOnly()
 
     acutal_rs1 = int(dut.rs1_val_D.value)
+    acutal_rs2 = int(dut.rs2_val_D.value)
+    assert acutal_rs1 == 20, (
+        f"Bypass-disable failed: rs1 x{dut.rs1_idx_rf.value} expected 20, got {acutal_rs1}"
+    )
+    assert acutal_rs2 == 20, (
+        f"Bypass-disable failed: rs2 x{dut.rs2_idx_rf.value} expected 20, got {acutal_rs2}"
+    )
+
+    await Timer(100, unit="ps")
+
+    dut.rf_write_W.value = 1 & MASK_01 # When rf_write = 1, bypass will activate
+    dut.rs1_idx_rf.value = 7 & MASK_05
+    dut.rs2_idx_rf.value = 7 & MASK_05
+    dut.rd_idx_W.value = 7 & MASK_05
+    dut.WB_mux_result.value = 30 & MASK_32
+
+    await ReadOnly()
+
+    acutal_rs1 = int(dut.rs1_val_D.value)
+    acutal_rs2 = int(dut.rs2_val_D.value)
     assert acutal_rs1 == 30, (
         f"Bypass failed: rs1 x{dut.rs1_idx_rf.value} expected 30, got {acutal_rs1}"
+    )
+    assert acutal_rs2 == 30, (
+        f"Bypass failed: rs2 x{dut.rs2_idx_rf.value} expected 30, got {acutal_rs2}"
+    )
+
+    # x0 Priority Check
+    await FallingEdge(dut.clk)
+    dut.rd_idx_W.value = 0 & MASK_05
+    dut.WB_mux_result.value = 50 & MASK_32
+
+    await RisingEdge(dut.clk)
+
+    await FallingEdge(dut.clk)
+    dut.rs1_idx_rf.value = 0 & MASK_05
+    dut.rs2_idx_rf.value = 0 & MASK_05
+
+    await ReadOnly()
+
+    acutal_rs1 = int(dut.rs1_val_D.value)
+    acutal_rs2 = int(dut.rs2_val_D.value)
+    assert acutal_rs1 == 0, (
+        f"x0 check failed: rs1 x{dut.rs1_idx_rf.value} expected 0, got {acutal_rs1}"
+    )
+    assert acutal_rs2 == 0, (
+        f"x0 check failed: rs2 x{dut.rs2_idx_rf.value} expected 0, got {acutal_rs2}"
     )
 
     dut._log.info("Reset and write checks passed")

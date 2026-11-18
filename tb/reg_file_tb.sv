@@ -66,6 +66,7 @@ module reg_file_tb
         test_reg_file_synchronous_write();
         test_reg_file_combinational_read();
         test_bypass();
+        test_x0();
 
         $display("REG FILE PASS: tb completed");
         $finish;
@@ -209,13 +210,47 @@ module reg_file_tb
 
         @(negedge clk);
         rs1_idx_rf  = 5'd7;
+        rs2_idx_rf  = 5'd7;
+        rf_write_W  = 1'b0;
+        rd_idx_W    = 5'd7;
+        WB_mux_result = 32'd30;
+        #1;
+
+        check_write_value("Bypass-disable value rs1", int'(rs1_idx_rf), 32'd20,rs1_val_D);
+        check_write_value("Bypass-disable value rs2", int'(rs2_idx_rf), 32'd20,rs2_val_D);
+        #100ps;
+
+        rs1_idx_rf  = 5'd7;
+        rs2_idx_rf  = 5'd7;
         rf_write_W  = 1'b1;
         rd_idx_W    = 5'd7;
         WB_mux_result = 32'd30;
         #1;
 
-        check_value("Bypass value x7", 32'd30, rs1_val_D);
+        check_write_value("Bypass-disable value rs1", int'(rs1_idx_rf), 32'd30,rs1_val_D);
+        check_write_value("Bypass-disable value rs2", int'(rs2_idx_rf), 32'd30,rs2_val_D);
     endtask 
+
+    task automatic test_x0();
+        apply_reg_file_defaults();
+
+        @(negedge clk);
+        rf_write_W = 1'b1;
+        rd_idx_W = 5'd0;
+        WB_mux_result = 32'd50;
+        #1;
+
+        @(posedge clk);
+        #1;
+
+        @(negedge clk);
+        rs1_idx_rf = 5'd0;
+        rs2_idx_rf = 5'd0;
+        #1;
+
+        check_value("x0 value", 32'd0, rs1_val_D);
+        check_value("x0 value", 32'd0, rs2_val_D);
+    endtask
 
     task automatic check_write_value(
         input string name,
