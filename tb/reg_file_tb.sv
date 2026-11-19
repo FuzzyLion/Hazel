@@ -92,7 +92,7 @@ module reg_file_tb
         for (int idx = 1; idx < 32; idx++) begin
             @(negedge clk);
             rf_write_W = 1'b1;
-            rd_idx_W = ADDR_WIDTH'(idx);
+            rd_idx_W = $unsigned(ADDR_WIDTH'(idx));
             WB_mux_result = 32'hFFFF_FFFF;
             #1;
 
@@ -101,7 +101,7 @@ module reg_file_tb
 
             @(negedge clk);
             rf_write_W = 1'b0;
-            rs1_idx_rf = ADDR_WIDTH'(idx);
+            rs1_idx_rf = $unsigned(ADDR_WIDTH'(idx));
             #1
 
             check_write_value("Reg value", idx, 32'hFFFF_FFFF, rs1_val_D);
@@ -120,8 +120,8 @@ module reg_file_tb
 
         for (int idx = 0; idx < 32; idx++) begin
             @(negedge clk);
-            rs1_idx_rf = ADDR_WIDTH'(idx);
-            rs2_idx_rf = ADDR_WIDTH'(31 - idx);
+            rs1_idx_rf = $unsigned(ADDR_WIDTH'(idx));
+            rs2_idx_rf = $unsigned(ADDR_WIDTH'(31 - idx));
             #1;
 
         // Combinational read without clk waiting
