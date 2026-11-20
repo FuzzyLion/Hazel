@@ -3,7 +3,9 @@ from cocotb.clock import Clock, Timer
 from cocotb.triggers import FallingEdge, RisingEdge, ReadOnly
 
 from reg_file_model import RegFileModel
+
 import random
+import os
 
 @cocotb.test()
 async def test_reg_file(dut):
@@ -193,6 +195,70 @@ async def test_reg_file(dut):
     assert actual_rs2 == 0, (
         f"x0 check failed: rs2 x{dut.rs2_idx_rf.value} expected 0, got {actual_rs2}"
     )
+    
+    # Reset Priority Check
+    await FallingEdge(dut.clk)
+    dut.reset.value = 0
+    dut.rf_write_W.value = 1
+    dut.rd_idx_W.value = 7
+    dut.WB_mux_result.value = 20
+    
+    await RisingEdge(dut.clk)
+    
+    await FallingEdge(dut.clk)
+    dut.rf_write_W.value = 0
+    dut.rs1_idx_rf.value = 7
+    dut.rs2_idx_rf.value = 7
+    
+    await ReadOnly()
+    
+    actual_rs1 = int(dut.rs1_val_D.value)
+    actual_rs2 = int(dut.rs2_val_D.value)
+    assert actual_rs1 == 20, (
+        f"Reset-priority check failed: rs1 x{dut.rs1_idx_rf.value} expected 20, got {actual_rs1}"
+    )
+    assert actual_rs2 == 20, (
+        f"Reset-priority check failed: rs2 x{dut.rs2_idx_rf.value} expected 20, got {actual_rs2}"
+    )
+    
+    await Timer(100, unit="ps")
+    
+    dut.reset.value = 1
+    dut.rf_write_W.value = 1
+    dut.rs1_idx_rf.value = 7
+    dut.rs2_idx_rf.value = 7
+    dut.rd_idx_W.value = 7
+    dut.WB_mux_result.value = 30
+    
+    await ReadOnly()
+    
+    actual_rs1 = int(dut.rs1_val_D.value)
+    actual_rs2 = int(dut.rs2_val_D.value)
+    assert actual_rs1 == 30, (
+        f"Reset-priority check failed: rs1 x{dut.rs1_idx_rf.value} expected 30, got {actual_rs1}"
+    )
+    assert actual_rs2 == 30, (
+        f"Reset-priority check failed: rs2 x{dut.rs2_idx_rf.value} expected 30, got {actual_rs2}"
+    )
+    
+    await RisingEdge(dut.clk)
+    
+    await FallingEdge(dut.clk)
+    dut.reset.value = 1
+    dut.rf_write_W.value = 0
+    dut.rs1_idx_rf.value = 7
+    dut.rs2_idx_rf.value = 7
+    
+    await ReadOnly()
+    
+    actual_rs1 = int(dut.rs1_val_D.value)
+    actual_rs2 = int(dut.rs2_val_D.value)
+    assert actual_rs1 == 0, (
+        f"Reset-priority check failed: rs1 x{dut.rs1_idx_rf.value} expected 0, got {actual_rs1}"
+    )
+    assert actual_rs2 == 0, (
+        f"Reset-priority check failed: rs2 x{dut.rs2_idx_rf.value} expected 0, got {actual_rs2}"
+    )
 
     # Another Test with Reference Model
     model = RegFileModel()
@@ -257,8 +323,9 @@ async def test_reg_file(dut):
     )
 
     # With Random Inputs - Uniform Random
-    seed = 2026
+    seed = int(os.getenv("RF_SEED", "2026")) # Env var
     rng = random.Random(seed)
+    dut._log.info(f"Stimulus seed={seed}")
 
     for round in range(100):
         we = rng.randrange(2)
@@ -323,6 +390,8 @@ async def test_reg_file(dut):
         )
         
     ## Biased random: Read-port Bypass
+    mode_counts = [0, 0, 0, 0]
+
     for round in range(100):
         we = 1
         rd = rng.randrange(1, 32)
@@ -332,6 +401,7 @@ async def test_reg_file(dut):
         if mode == 0:
             rs1 = rng.randrange(32)
             rs2 = rng.randrange(32)
+            mode_counts[mode] += 1
             if rs1 == rd:
                 rs1 += rng.randint(1, 10)
             if rs2 == rd:
@@ -339,16 +409,19 @@ async def test_reg_file(dut):
         elif mode == 1:
             rs1 = rd
             rs2 = rng.randrange(32)
+            mode_counts[mode] += 1
             if rs2 == rd:
                 rs2 += rng.randint(1, 10)
         elif mode == 2:
             rs1 = rng.randrange(32)
             rs2 = rd
+            mode_counts[mode] += 1
             if rs1 == rd:
                 rs1 += rng.randint(1, 10)
         elif mode == 3:
             rs1 = rd
             rs2 = rd
+            mode_counts[mode] += 1
             
         await FallingEdge(dut.clk)
         dut.reset.value = 0
@@ -377,6 +450,40 @@ async def test_reg_file(dut):
 
         await RisingEdge(dut.clk)
         model.on_rising_edge(reset=False, we=we, rd=rd, data=data)
-            
+        
+    await FallingEdge(dut.clk)
+    dut.rf_write_W.value = 0
+    
+    for idx in range(32):
+        rs1 = idx
+        rs2 = 31 - idx
+        
+        await FallingEdge(dut.clk)
+        dut.rs1_idx_rf.value = rs1
+        dut.rs2_idx_rf.value = rs2
+        
+        await ReadOnly()
+        
+        expected = model.read(rs=rs1, we=0, rd=0, data=0)
+        actual = int(dut.rs1_val_D.value)
+        assert actual == expected, (
+            f"idx={idx}"
+            f"Random inputs rs1 check: expected={expected:#010x}, actual={actual:#010x}"
+        )
+        expected = model.read(rs=rs2, we=0, rd=0, data=0)
+        actual = int(dut.rs2_val_D.value)
+        assert actual == expected, (
+            f"idx={idx}"
+            f"Random inputs rs2 check: expected={expected:#010x}, actual={actual:#010x}"
+        )
+
+    print(
+        f"Two ports miss: {mode_counts[0]}",
+        f"Only rs1 hits: {mode_counts[1]}",
+        f"Only rs2 hits: {mode_counts[2]}",
+        f"Two ports hit: {mode_counts[3]}",
+        sep="\n",
+        flush=True,
+    )   
 
     dut._log.info("Reset and write checks passed")

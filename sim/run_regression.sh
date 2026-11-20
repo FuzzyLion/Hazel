@@ -9,6 +9,7 @@ tests=(
   "run_alu_op.sh"
   "run_pc_target_gen.sh"
   "run_reg_file.sh"
+  "run_reg_file_cocotb.sh"
   "run_data_mem.sh"
   "run_hazard_unit.sh"
   "run_basic_smoke.sh"
