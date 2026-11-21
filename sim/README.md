@@ -1,8 +1,8 @@
 # Simulation Scripts
 
 This directory contains the build and execution scripts for directed
-SystemVerilog tests, processor smoke programs, and the selected ISA-lite test
-flow.
+SystemVerilog tests, the Cocotb Regfile test, processor smoke programs, and
+the selected ISA-lite test flow.
 
 ## Documentation
 
@@ -25,7 +25,8 @@ the linked documents.
 
 ## Common Commands
 
-Run the complete directed regression:
+Run the complete regression with the [Cocotb environment](#cocotb-regfile)
+active:
 
 ```bash
 bash sim/run_regression.sh
@@ -43,11 +44,50 @@ Run one ISA-lite test:
 bash sim/run_isa_lite.sh ori
 ```
 
+## Cocotb Regfile
+
+Besides Verilator and a C++ compiler, the test needs GNU Make and Cocotb 2.x.
+I run it with Cocotb 2.1.0 and Verilator 5.046. The Makefile asks
+`cocotb-config` where Cocotb's makefiles are, so activate the Python
+environment first. With a virtual environment in `.venv/`, which Git ignores:
+
+```bash
+source .venv/bin/activate
+bash sim/run_reg_file_cocotb.sh
+```
+
+The runner calls `make sim` once per stimulus seed, in the order `1`, `42`,
+`2026`, and stops at the first failure. `run_regression.sh` calls the same
+runner. To replay one seed from the repository root:
+
+```bash
+RF_SEED=42 make -C tb/cocotb/reg_file sim
+```
+
+Each log shows two seeds, and only `RF_SEED` affects this test. It seeds the
+test's own `random.Random` instance, defaults to `2026`, and appears as
+`Stimulus seed=...`. The startup line
+`Seeding Python random module with ...` comes from Cocotb. Cocotb takes that
+seed from the current time unless `COCOTB_RANDOM_SEED` is set, and the test
+never draws from the global `random` module. Assertion messages in the random
+loops start with `seed=... cycle=...`, so a failure already names the seed to
+replay.
+
+Build output and `results.xml` go to `sim/build/cocotb_reg_file/`. `make sim`
+deletes and rewrites `results.xml` on every run, so after a full batch it only
+describes the seed `2026` run. Its `random_seed` property is Cocotb's seed,
+not `RF_SEED`.
+
+Cocotb rebuilds the Verilator model only when a listed source is newer than
+the build. If you point `VERILOG_SOURCES` at another file, such as a mutated
+RTL copy, run `make -C tb/cocotb/reg_file clean` after switching back.
+Otherwise the model built from that file can stay in use.
+
 ## Waveforms
 
-All testbenches support optional VCD output. By default, runners compile and
-run without tracing. Set `TRACE=1` to enable both Verilator tracing and the
-testbench's `$dumpfile` / `$dumpvars` block:
+The directed SystemVerilog testbenches support optional VCD output. By default,
+their runners compile and run without tracing. Set `TRACE=1` to enable both
+Verilator tracing and the testbench's `$dumpfile` / `$dumpvars` block:
 
 ```bash
 TRACE=1 bash sim/run_data_mem.sh
@@ -59,8 +99,8 @@ The runner prints the absolute VCD path and saves the file in its own
 Hazard smoke waveforms are `sim/build/basic_smoke/basic_smoke.vcd` and
 `sim/build/smoke_hazard/hazard_smoke.vcd`.
 
-The same switch applies to the complete directed regression or selected
-ISA-lite cases:
+The same switch applies to the complete regression, where the Cocotb step
+ignores it, and to selected ISA-lite cases:
 
 ```bash
 TRACE=1 bash sim/run_regression.sh
@@ -110,9 +150,10 @@ bash sim/build_hex.sh \
 | `run_control_unit.sh`, `run_imm_ext.sh`, `run_alu_op.sh` | Focused combinational control and datapath tests |
 | `run_pc_target_gen.sh`, `run_hazard_unit.sh` | Redirect and hazard-control tests |
 | `run_reg_file.sh`, `run_data_mem.sh` | Focused sequential storage tests |
+| `run_reg_file_cocotb.sh` | Cocotb Regfile test, once per stimulus seed |
 | `run_basic_smoke.sh`, `run_smoke_*.sh` | Integrated processor smoke programs |
 | `run_isa_lite.sh` | Selected upstream RV32UI tests |
-| `run_regression.sh` | Unified directed regression entry point |
+| `run_regression.sh` | Unified regression entry point, including the Cocotb runner |
 
 Integrated processor tests compile the RTL through
 [`rtl/filelist.f`](../rtl/filelist.f), whose paths are relative to the repository
@@ -152,6 +193,7 @@ and simulator output stays under the ignored `sim/build/` directory:
 | `sim/build/programs/` | Preprocessed assembly, ELF, dump, and map files for local programs |
 | `sim/build/<test>/obj_dir/` | Verilator-generated C++ and simulation executables |
 | `sim/build/<test>/*.vcd` | Directed-test waveforms generated with `TRACE=1` |
+| `sim/build/cocotb_reg_file/` | Cocotb Verilator build and the last run's `results.xml` |
 | `sim/build/riscv_lite/` | ISA-lite ELF, dump, and Verilator output |
 | `sim/build/riscv_lite/verilator/<case>/rv32ui_<case>.vcd` | Per-case ISA-lite waveforms generated with `TRACE=1` |
 

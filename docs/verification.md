@@ -29,6 +29,10 @@ Verification has two layers:
 
 The two layers are intentionally complementary. Module tests are better at localizing a broken control signal or datapath rule. Program-level tests are better at finding integration bugs in forwarding, pipeline-register fields, redirect flushing, writeback selection, and instruction-to-instruction interactions.
 
+The register file also has a Cocotb test next to its directed SV test. It is
+the only Cocotb test in the project and adds a Python reference model and
+seeded random stimulus; see [Cocotb Regfile Checks](#cocotb-regfile-checks).
+
 ### Source-Register Usage and Load-to-JALR Coverage
 
 The control-unit test checks `uses_rs1_D` and `uses_rs2_D` for representative
@@ -47,7 +51,8 @@ source-use encoding or memory-wait timing.
 
 ## Current Directed Baseline
 
-`sim/run_regression.sh` registers nineteen tests:
+`sim/run_regression.sh` registers nineteen directed SV tests and one Cocotb
+runner:
 
 - Seven module tests for control decode, immediate generation, ALU behavior,
   PC-target generation, the register file, data memory, and hazard control
@@ -55,6 +60,8 @@ source-use encoding or memory-wait timing.
   ALU/branch behavior, mixed CSR and synchronous traps, four directed precise
   exception cases, unsupported CSR access and synchronous-exception priority,
   and one-shot machine-timer delivery
+- One Cocotb runner that runs the Regfile test with stimulus seeds `1`, `42`,
+  and `2026`
 
 The four precise-exception smokes cover illegal instruction,
 instruction-address misalignment, load-address misalignment, and store-address
@@ -88,6 +95,50 @@ acknowledgement and `mret` recovery.
 These are directed proofs of selected behavior. They are not exhaustive tests
 of every instruction encoding, CSR access, alignment case, or older in-flight
 side effect.
+
+### Cocotb Regfile Checks
+
+I used the register file to learn Cocotb, and that exercise is complete.
+[`test_reg_file.py`](../tb/cocotb/reg_file/test_reg_file.py) has a directed
+part and a model-based part.
+
+The directed part checks reset, synchronous write, both combinational read
+ports, the read-side WB bypass with write enable on and off, and that x0 reads
+0 while a write to x0 is active. The reset-priority case asserts reset and a
+write to x7 in the same cycle. Before the edge, a read of x7 already returns
+the WB value, because the bypass path does not look at reset. After the edge,
+with writes off, x7 reads 0, so reset won over the write.
+
+The model-based part checks the read ports against
+[`RegFileModel`](../tb/cocotb/reg_file/reg_file_model.py), first with a few
+fixed values and then with seeded random stimulus. Like the RTL, the model
+keeps the storage update (`on_rising_edge`) apart from the combinational read
+with x0 masking and bypass (`read`). A uniform loop randomizes write enable,
+`rd`, both read addresses, and 32-bit data for 100 cycles. A biased loop keeps
+writes on with `rd` between 1 and 31 for another 100 cycles and picks one of
+four modes per cycle, so that neither port, only rs1, only rs2, or both ports
+read the register being written. In every random cycle, both ports are checked
+against `read` after the inputs settle, and the model is updated only at the
+rising edge. After each loop, writes go off and both ports read back all 32
+registers.
+
+The biased loop also prints how often each mode was picked. The count goes up
+when the generator picks a mode, and no check reads it, so it shows what the
+generator chose and is not an independent functional-coverage check. The test
+only uses the module's ports, so its results stop at the module interface and
+say nothing about forwarding in the core or about ISA compliance. Three seeds
+with 200 random cycles each are still just a sample of the input space.
+
+On 2026-11-20 I ran the three-seed batch and the full regression, and both
+passed. To make sure the test can fail, I pointed the Makefile at a temporary
+copy of `reg_file.sv` with the x0 mask removed from both read ports. The
+directed x0 check failed with expected 0, actual 50. In that check `rd` is 0
+and write enable is high, so without the mask the bypass forwards the WB value
+50 to x0. This was a one-off manual check. The copy is not in the repository,
+and the Makefile points at the original RTL again.
+
+Commands, dependencies, seed replay, and output paths are in the
+[simulation guide](../sim/README.md#cocotb-regfile).
 
 ### Stage Hierarchy and Observation Paths
 
@@ -123,7 +174,8 @@ not add instruction coverage or establish formal equivalence.
 
 ## How to Run the Baseline
 
-Run the directed regression:
+Run the regression with `cocotb-config` on `PATH`, which its Cocotb step
+needs:
 
 ```bash
 bash sim/run_regression.sh
@@ -143,7 +195,7 @@ bash sim/run_isa_lite.sh ori
 
 The ISA-lite runner builds each selected upstream `rv32ui` test through `software/scripts/build_riscv_lite_test.sh`, extracts the instruction words into `programs/hex/riscv_lite/`, loads the resulting `.hex` file into instruction memory, and uses `tb/core_isa_lite_tb.sv` to watch `x31` for pass/fail completion.
 
-All testbenches support optional VCD output through `TRACE=1`; tracing is
+Directed SV testbenches support optional VCD output through `TRACE=1`; tracing is
 disabled by default. Waveforms help inspect timing and signal interactions,
 while pass/fail remains determined by the testbench checks. See the
 [waveform guide](../sim/README.md#waveforms) for commands and output paths.
@@ -316,4 +368,4 @@ The next useful improvements are:
 - Broaden unsupported-CSR coverage beyond CSRRW and extend precise-exception side-effect and synchronous-exception/timer collision coverage.
 - Add periodic-timer tests only when readable `mtime` access and next-deadline software exist.
 - Keep module tests focused and readable when a program-level failure exposes a new local bug.
-- Introduce Cocotb only when verification starts to need randomized memory latency, broad test matrices, reference models, or Cache-specific golden-memory checking.
+- Use Cocotb for other modules only when randomized memory latency, broad test matrices, or Cache-specific golden-memory checking makes the extra Python flow worth it.

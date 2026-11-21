@@ -39,18 +39,22 @@ registers, exception causes, and interrupt behavior.
 
 ## Verification and Quick Start
 
-The directed Verilator regression contains seven module tests and twelve
+The Verilator regression contains seven directed module tests and twelve
 processor smoke tests. These check local datapath and control behavior,
-pipeline integration, and selected precise-trap and timer scenarios. A separate
-ISA-lite runner executes selected upstream `rv32ui` programs using a local
-register-based completion protocol.
+pipeline integration, and selected precise-trap and timer scenarios. It also
+runs a [Cocotb test for the register file](docs/verification.md#cocotb-regfile-checks)
+with a Python reference model and random stimulus from three fixed seeds. A
+separate ISA-lite runner executes selected upstream `rv32ui` programs using a
+local register-based completion protocol.
 
 The runners expect Verilator, a C++ build environment, and a RISC-V GNU
-toolchain exposing `riscv64-elf-*` commands. The ISA-lite flow also requires
-an upstream `riscv-tests` checkout at `tools/riscv-tests/`; follow the
+toolchain exposing `riscv64-elf-*` commands. The Cocotb step needs an active
+Python environment with Cocotb 2.x, as described in the
+[simulation guide](sim/README.md#cocotb-regfile). The ISA-lite flow also
+requires an upstream `riscv-tests` checkout at `tools/riscv-tests/`; follow the
 [setup instructions](tools/README.md#riscv-tests).
 
-Run the complete directed regression:
+Run the complete regression:
 
 ```bash
 bash sim/run_regression.sh
@@ -76,8 +80,9 @@ TRACE=1 bash sim/run_data_mem.sh
 gtkwave sim/build/data_mem/data_mem_tb.vcd
 ```
 
-The same switch works with the regression and ISA-lite runners. See the
-[waveform guide](sim/README.md#waveforms) for output paths and examples.
+The same switch works with the regression and ISA-lite runners. The Cocotb
+step ignores it. See the [waveform guide](sim/README.md#waveforms) for output
+paths and examples.
 
 See the [simulation guide](sim/README.md) for build commands and generated-file
 locations, and [verification evidence and gaps](docs/verification.md) for the
@@ -140,7 +145,7 @@ full scope.
 | `rtl/peripherals/` | Machine timer |
 | `rtl/soc/` | Top-level wrapper, MMIO decoder, and system address map |
 | `rtl/filelist.f` | RTL compilation list, with packages listed before their users |
-| `tb/` | Directed SystemVerilog module and processor testbenches |
+| `tb/` | Directed SystemVerilog module and processor testbenches, plus the Cocotb register-file test in `cocotb/reg_file/` |
 | `programs/` | `asm/` for local assembly sources; `hex/` for instruction images |
 | `sim/` | Build and test runners |
 | `software/` | Linker script, minimal runtime, ISA-lite environment, and build helpers |
