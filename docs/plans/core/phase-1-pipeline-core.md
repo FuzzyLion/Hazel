@@ -7,7 +7,7 @@ Hard limit: 2.5 weeks
 
 ## Goal
 
-Get the main CPU pipeline running simple, hazard-free programs before the complete Hazard Unit is in place.
+I want the main pipeline to run simple, hazard-free programs before the full hazard unit exists.
 
 ## Key Constraints
 
@@ -78,12 +78,10 @@ Get the main CPU pipeline running simple, hazard-free programs before the comple
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
-1. Can you walk through one instruction from `IF` to `WB` using your actual implementation?
+1. Can I walk one instruction from `IF` to `WB` through my actual RTL?
 2. Which control signals are generated in decode and where are they consumed later?
-3. How do you know your pipeline registers are carrying enough information?
+3. How do I know my pipeline registers carry enough information?
 4. What would break first if a branch target were calculated incorrectly?
-5. What assumptions are you still making because Hazard Unit is not complete yet?
+5. What am I still assuming because the hazard unit isn't complete yet?

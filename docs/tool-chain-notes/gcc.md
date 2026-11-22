@@ -72,15 +72,22 @@ Sets the output ELF filename.
 
 ## ISA-Lite Differences
 
-The ISA-lite script additionally uses:
+`software/scripts/build_riscv_lite_test.sh` differs from the local smoke build
+in four options:
 
 ```bash
 -x assembler-with-cpp
+-march=rv32i
 -I<include-directory>
+-Wl,-Ttext=0
 ```
 
-`-x assembler-with-cpp` runs the C preprocessor before assembly. `-I` adds
-directories that contain test macros and local environment headers.
+`-x assembler-with-cpp` runs the C preprocessor before assembly. `-march=rv32i`
+leaves out `zicsr`, because neither the upstream user-level tests nor my local
+environment use CSR instructions. `-I` adds the directories with the test
+macros and the local environment header. `-Wl,-Ttext=0` places `.text` at
+address 0 without the project linker script, so there is no `.trap` section
+and no map file.
 
 ## Inputs and Output
 

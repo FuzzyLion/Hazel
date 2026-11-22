@@ -23,6 +23,10 @@ tools/riscv-tests/
 
 # Not-important notes
 mock-interview-log.md
+docs/notes/phase-0-review.md
+
+# Personal writing guide for agents
+/WRITING.md
 
 # Python Env
 .venv/

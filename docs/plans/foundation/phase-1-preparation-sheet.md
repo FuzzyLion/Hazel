@@ -1,8 +1,6 @@
 # Phase 1 Preparation Sheet
 
-This document turns the current `Phase 1` preparation discussions into a cleaner starting point.
-
-The goal is not to lock every design detail at once. It is to freeze the three things that matter most before implementation begins:
+I used this sheet to pin down the three things that mattered most before I started Phase 1:
 
 1. The minimum instruction subset
 2. The decode-control vocabulary and first control table
@@ -56,7 +54,7 @@ Do not treat `lb/lh/...` as features that appear automatically. They add:
 
 ## 2. Quick Instruction Semantics
 
-This section records the behavior of the first instruction group so we can check the decode table and datapath against it later.
+This section records the behavior of the first instruction group so I can check the decode table and datapath against it later.
 
 1. `add`
    `rd <- rs1 + rs2`
@@ -255,7 +253,7 @@ One possible grouping is:
 3. `WB controls`
    `reg_write, result_sel`
 
-This gives us:
+This split gives me:
 
 1. Clearer semantics
 2. Easier side-effect checks during hazard and flush work
@@ -316,7 +314,7 @@ When `valid=0`, downstream logic must not:
 
 ## 9. Final Check Before Phase 1
 
-Phase 1 can begin on solid ground if you can explain each of these points yourself:
+Phase 1 can start once I can explain each of these points myself:
 
 1. Why these 10 instructions form the first bring-up group
 2. Why each instruction uses its chosen `result_sel`
@@ -338,7 +336,7 @@ This section records the relationship between the hand-drawn datapath and the cu
 
 ### 10.1 Where `valid` Comes From and How It Moves
 
-`valid` travels with an instruction through the pipeline and tells us whether a stage contains a real instruction or a bubble. It is not decoded from an instruction bit, and it is not an ordinary control signal produced by the Control Unit.
+`valid` travels with an instruction through the pipeline and says whether a stage holds a real instruction or a bubble. It is not decoded from an instruction bit, and it is not an ordinary control signal produced by the Control Unit.
 
 For the first instruction-memory model, `imem_resp_valid` can remain high after reset. Fetch can then use:
 
@@ -401,11 +399,11 @@ Do not place this combinational logic inside the pipeline-register modules. A pi
 
 ### Current RTL Versus the Initial Conventions
 
-Sections 10.5–10.7 retain the initial bring-up conventions. In the current RTL,
+Sections 10.5 to 10.7 keep the initial bring-up conventions. In the current RTL,
 the fourth writeback encoding carries CSR read data, and `pc_src_E` is an enum
 including `PC_TARGET` and `PC_MRET`, rather than the Boolean shown below.
-See [the current architecture](../../core-architecture.md) and
-[current hazard semantics](../core/phase-2-hazard-control.md#current-control-semantics).
+See [the current architecture](../../core-architecture.md) and its
+[hazard and redirect rules](../../core-architecture.md#hazards-and-redirects).
 
 ### 10.5 WB Result-Mux Encoding
 

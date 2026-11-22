@@ -7,7 +7,7 @@ Hard limit: 2 weeks
 
 ## Goal
 
-Close the minimum Machine Mode loop and lay the groundwork for system software and later RTOS support.
+I want to close the minimum machine-mode loop and lay the groundwork for system software and, later, the RTOS.
 
 ## Detailed Tasks
 
@@ -68,12 +68,10 @@ Close the minimum Machine Mode loop and lay the groundwork for system software a
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
 1. What state must be saved on an exception or interrupt, and why?
-2. How does trap entry interact with in-flight instructions in your pipeline?
-3. Why is your exception and interrupt priority rule correct?
-4. What minimum CSR set did you implement, and why is it enough for the next stage?
+2. How does trap entry interact with in-flight instructions in my pipeline?
+3. Why is my exception and interrupt priority rule correct?
+4. What minimum CSR set did I implement, and why is it enough for the next phase?
 5. What bug would appear if pipeline flush on trap were incomplete?

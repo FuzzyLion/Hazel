@@ -1,189 +1,162 @@
-# RISC Pipeline
+# Hazel
 
-I'm building a 32-bit, single-issue RISC-V processor in SystemVerilog. It has a
-five-stage in-order pipeline with forwarding, load-use stalls, and EX-stage
-branch and jump resolution, plus a minimal machine-mode CSR, precise-trap,
-and one-shot timer-interrupt path.
+Hazel is a 32-bit RISC-V processor that I'm building in SystemVerilog to teach
+myself CPU design. I learned the theory from *Digital Design and Computer
+Architecture: RISC-V Edition* by Harris and Harris, and this is where I build a
+core on my own. I want to be able to explain every module and every control
+decision in it, so I keep the design plain.
 
-I'm using this project to learn CPU design, so I want to be able to explain
-what each module owns and how the control decisions fit together. The current
-milestone covers the Phase 3 verification baseline and the minimum Phase 4
-CSR/trap/timer loop. SoC integration and FPGA bring-up are next, in Phase 5.
+So far it is a five-stage, in-order RV32I pipeline with a small machine-mode
+trap path and a one-shot timer interrupt. I run it in Verilator against my own
+directed tests and 19 upstream `rv32ui` tests. Next I'm putting it into a small
+SoC and onto a NEXYS Artix-7 board. I named it after the hazel tree, which
+starts as a tiny seed and gradually becomes a full-grown tree. I'm growing the
+core the same way, one phase at a time.
 
-## Datapath
+[![Simplified five-stage datapath of Hazel with forwarding, the hazard unit, the redirect and CSR block, and memory access with MMIO and the timer](docs/Datapath_Simplified_v1.0.1.svg)](docs/Datapath_Simplified_v1.0.1.svg)
 
-[![Five-stage RISC-V datapath with forwarding, hazard control, CSR and trap logic, and timer MMIO](docs/Datapath_v1.4.2.svg)](docs/Datapath_v1.4.2.svg)
+I keep two versions of the datapath diagram. This simplified one shows the main
+blocks of each stage and groups related signals into bundles. Black lines carry
+data and blue lines carry control. The [complete version](docs/Datapath_v1.5.1.svg)
+has every signal, and the
+[architecture notes](docs/core-architecture.md#datapath-overview) walk through
+it stage by stage.
 
-[Open the full-size diagram](docs/Datapath_v1.4.2.svg) for signal labels and design
-notes. Black paths carry data; blue paths carry control. Follow the main
-pipeline from left to right, with forwarding and PC redirects returning to
-earlier stages and hazard control running along the bottom.
+## What Works
 
-The [architecture walkthrough](docs/core-architecture.md#datapath-overview)
-connects the drawing to pipeline stages, RTL modules, and control priorities.
+- Five stages (IF, ID, EX, MEM, WB), with a `valid` bit in every pipeline register
+- Register and immediate ALU instructions, all six branches, `jal`, `jalr`, `lui` and `auipc`
+- Byte, halfword and word loads and stores to an internal data RAM
+- Forwarding from MEM and WB into EX, and a one-cycle load-use stall
+- Eight machine-mode CSRs, all six Zicsr instructions, `ecall`, `ebreak` and `mret`
+- Precise exceptions for illegal instructions and misaligned branch or jump targets, loads and stores
+- A one-shot machine-timer interrupt, set through memory-mapped `mtimecmp`
 
-## Implemented Features
+## How I Built It
 
-| Area | Current implementation |
-| --- | --- |
-| Pipeline | `IF` / `ID` / `EX` / `MEM` / `WB`, with four explicit pipeline registers carrying `valid` bits |
-| Integer execution | Register and immediate ALU operations, all six base branch conditions, `jal`, `jalr`, `lui`, and `auipc` |
-| Memory | Byte, halfword, and word loads and stores in internal data RAM; separate instruction memory |
-| Hazards | MEM/WB-to-EX forwarding, CSR-result forwarding, load-use stalls, and redirect flushing |
-| CSR access | All six base Zicsr read/modify/write forms for the supported machine-mode CSR set |
-| Traps and return | `ecall`, `ebreak`, `mret`, and selected precise synchronous exceptions, with synchronous exceptions taking priority over timer interrupts |
-| Timer | A one-shot machine-timer interrupt through MMIO-programmable `mtimecmp` |
+I worked in phases, each with a plan and exit criteria in
+[docs/plans](docs/plans/README.md). Before writing any RTL, I wrote down what
+the first version would and wouldn't do. Then came the pipeline, the hazard
+unit, the test setup and the trap path.
 
-See the [CSR, trap, and timer design](docs/csr-trap-design.md) for supported
-registers, exception causes, and interrupt behavior.
+I kept the core in order, with branches resolved in EX, because that keeps the
+control simple and easy to test. The price is two lost cycles on every taken
+branch or jump and one on a load-use stall. I want to measure that on real
+software before I optimize it.
 
-## Verification and Quick Start
+For traps I split four jobs across modules: finding the fault, picking which
+trap wins, updating the CSRs and redirecting the PC. That keeps `csr_file.sv`
+from turning into a second control unit. If an instruction faults in the same
+cycle that the timer interrupt arrives, the fault wins. It belongs to that
+instruction, and the timer request simply stays pending. The
+[trap notes](docs/csr-trap-design.md) have the details.
 
-The Verilator regression contains seven directed module tests and twelve
-processor smoke tests. These check local datapath and control behavior,
-pipeline integration, and selected precise-trap and timer scenarios. It also
-runs a [Cocotb test for the register file](docs/verification.md#cocotb-regfile-checks)
-with a Python reference model and random stimulus from three fixed seeds. A
-separate ISA-lite runner executes selected upstream `rv32ui` programs using a
-local register-based completion protocol.
+The bug I learned the most from showed up in May 2026, in my hazard smoke test.
+`x3` should have been 23 and came out as 7. Forwarding covers a reader one or
+two instructions behind the writer. At three apart, the writer is in WB while
+the reader is in ID, and my register file still gave ID the old value. The
+write only lands at the next clock edge. With stale reads at that distance,
+the program ends with exactly 7.
 
-The runners expect Verilator, a C++ build environment, and a RISC-V GNU
-toolchain exposing `riscv64-elf-*` commands. The Cocotb step needs an active
-Python environment with Cocotb 2.x, as described in the
-[simulation guide](sim/README.md#cocotb-regfile). The ISA-lite flow also
-requires an upstream `riscv-tests` checkout at `tools/riscv-tests/`; follow the
-[setup instructions](tools/README.md#riscv-tests).
+The book handles this case by writing the register file on the falling edge.
+Mine writes on the rising edge like everything else, so I added a bypass on
+the read ports. When WB writes the register that ID is reading, ID gets the WB
+value directly. A module test would not have caught this. The register file
+did exactly what I had specified, and the specification was the problem.
+`reg_file_tb` now checks the bypass directly.
 
-Run the complete regression:
+## Running the Tests
+
+`sim/run_regression.sh` runs seven module tests, twelve smoke programs and a
+[Cocotb test for the register file](docs/verification.md#cocotb-regfile-checks)
+that I wrote to learn Cocotb. Module tests drive one block at a time, so a
+failure points at one signal. Smoke programs run through the whole pipeline
+and catch problems between instructions, like the bypass bug.
+
+`sim/run_isa_lite.sh` runs 19 of the upstream `rv32ui` tests. Their official
+environment needs more privileged support than my core has, so I replaced it
+with a small one that reports pass or fail in `x31`.
+
+You need Verilator, a C++ compiler and a RISC-V GNU toolchain with
+`riscv64-elf-*` commands. The Cocotb test also needs
+[Cocotb 2.x in an active Python environment](sim/README.md#cocotb-regfile), and
+ISA-lite needs a [riscv-tests checkout](tools/README.md#riscv-tests).
 
 ```bash
-bash sim/run_regression.sh
+bash sim/run_regression.sh          # module, smoke and Cocotb tests
+bash sim/run_isa_lite.sh            # the selected rv32ui tests
+bash sim/run_isa_lite.sh ori        # one rv32ui test
+TRACE=1 bash sim/run_data_mem.sh    # one module test, with a VCD for GTKWave
 ```
 
-Run the selected upstream ISA-lite tests:
+The [simulation guide](sim/README.md) has every runner and output path, and
+[verification](docs/verification.md) says what each test covers and what it
+doesn't.
 
-```bash
-bash sim/run_isa_lite.sh
-```
+## FPGA Results So Far
 
-Run one ISA-lite test:
+I've only taken the core through Vivado 2026.1 synthesis and implementation,
+for an Artix-7 `xc7a100tcsg324-1` at 50 MHz. It hasn't run on the board yet.
+Two runs with different programs in the instruction ROM both meet timing:
 
-```bash
-bash sim/run_isa_lite.sh ori
-```
-
-Waveform tracing is disabled by default. Set `TRACE=1` to generate a VCD
-for a test, then open it with GTKWave if installed:
-
-```bash
-TRACE=1 bash sim/run_data_mem.sh
-gtkwave sim/build/data_mem/data_mem_tb.vcd
-```
-
-The same switch works with the regression and ISA-lite runners. The Cocotb
-step ignores it. See the [waveform guide](sim/README.md#waveforms) for output
-paths and examples.
-
-See the [simulation guide](sim/README.md) for build commands and generated-file
-locations, and [verification evidence and gaps](docs/verification.md) for the
-coverage boundaries.
-
-## Preliminary FPGA Implementation
-
-Two Vivado 2026.1 project-based synthesis and implementation runs targeted
-Artix-7 `xc7a100tcsg324-1` at **50 MHz (20 ns)**, using different fixed
-instruction ROM images:
-[`smoke_alu.hex`](programs/hex/smoke_alu.hex) and
-[`smoke_csr_trap.hex`](programs/hex/smoke_csr_trap.hex).
-
-| Metric | `smoke_alu` (2026-11-01) | `smoke_csr_trap` (2026-11-02) |
+| | `smoke_alu` (2026-11-01) | `smoke_csr_trap` (2026-11-02) |
 | --- | ---: | ---: |
 | LUTs after synthesis, including LUTRAM | 1344 | 2298 |
-| LUTRAM (included above) | 0 | 128 |
+| LUTRAM | 0 | 128 |
 | Flip-flops after synthesis | 1451 | 1916 |
 | BRAM tiles after synthesis | 0 | 0 |
 | Worst setup slack after routing | +2.357 ns | +1.406 ns |
 | Worst hold slack after routing | +0.130 ns | +0.114 ns |
 
-With `smoke_alu`, synthesis removed the data RAM, CSR state, and timer
-state. With `smoke_csr_trap`, these remained, including a 256-by-32-bit
-data RAM mapped to 128 LUTRAMs. The ROM image changes what synthesis can
-treat as constant and remove, so these numbers depend on the program. I don't
-treat the smaller result as an RTL optimization or either run as proof of
-full functional coverage.
+The numbers differ because of the program, not the RTL. `smoke_alu` never
+touches the data RAM, CSRs or timer, so Vivado removed them. `smoke_csr_trap`
+keeps them and is closer to the full core. Its data RAM went into LUTRAM
+instead of block RAM, because my data memory reads combinationally and block
+RAM needs a registered read.
 
-In the `smoke_csr_trap` run, the worst setup path runs from EX/MEM
-`rd_idx[2]` to the ID/EX `rs2_val[29]` synchronous-clear input.
-Its data-path delay is **17.835 ns**, with **75.8%** from routing.
-Internal setup, hold, and pulse-width checks passed, with no unclocked
-registers, unconstrained internal endpoints, or routing errors.
-I haven't tested the core on the FPGA board yet.
+In that run the worst setup path ends at the synchronous clear of the ID/EX
+register, with 17.8 ns of delay, about three quarters of it routing. I think it
+goes through forwarding, the branch compare and the flush, but I haven't
+confirmed that in the timing report yet.
 
-## Current Boundaries
+## What's Missing and What's Next
 
-- The core implements a practical RV32I teaching subset plus selected Zicsr and
-  machine-mode behavior. Full ISA and privileged-architecture compliance remain
-  outside the verified baseline.
-- Instruction and data memories are internal arrays. A CPU-to-SoC
-  request/response interface is the first Phase 5 task.
-- Instruction memory holds 256 words. The ISA-lite flow initializes instruction
-  memory only; loading ELF data sections into data memory remains future work.
-- Timer support is one-shot. Software/external interrupts, nested traps, and a
-  general ABI-safe trap runtime remain future work.
+- Not all of RV32I (no `fence` yet) and not the privileged spec. My tests don't
+  prove compliance.
+- Instruction and data memory are arrays inside the core, with no memory
+  interface yet.
+- Instruction memory holds 256 words, and ISA-lite only loads instructions, so
+  the upstream load/store tests don't run yet.
+- The timer interrupt is one-shot. There are no software or external
+  interrupts and no nested traps.
 
-The [architecture limitations](docs/core-architecture.md#7-current-boundary-and-known-limitations)
-and [verification gaps](docs/verification.md#next-verification-work) give the
-full scope.
+Phase 5 is next. I'll define a request/response interface between the CPU and
+the rest of the system, build a small SoC with ROM, RAM, UART and the timer,
+and bring it up on the board. After that come system-level tests, then Cache,
+FPU and a small RTOS. The [phase list](docs/plans/README.md#phase-list) has the
+plan for each step, and ideas I'm not working on yet go in the
+[backlog](docs/backlog.md).
 
-## Repository Map
+## Where Things Are
 
-| Path | Purpose |
+| Path | What's there |
 | --- | --- |
-| `rtl/core/` | Stage/Hazard Unit connections and shared types, with `stages/`, `pipeline/`, `datapath/`, `control/`, and `csr/` subdirectories |
-| `rtl/core/stages/` | Five independent stage modules; each producing stage contains its outgoing pipeline register |
-| `rtl/memory/` | Internal instruction and data memories |
-| `rtl/peripherals/` | Machine timer |
-| `rtl/soc/` | Top-level wrapper, MMIO decoder, and system address map |
-| `rtl/filelist.f` | RTL compilation list, with packages listed before their users |
-| `tb/` | Directed SystemVerilog module and processor testbenches, plus the Cocotb register-file test in `cocotb/reg_file/` |
-| `programs/` | `asm/` for local assembly sources; `hex/` for instruction images |
-| `sim/` | Build and test runners |
-| `software/` | Linker script, minimal runtime, ISA-lite environment, and build helpers |
-| `docs/` | Datapath diagram, architecture, design rationale, verification notes, tool notes, and backlog |
-| `docs/plans/` | Phase-by-phase roadmap and exit criteria |
-| `tools/` | External tool or test-suite checkouts that are not owned by this repository |
+| `rtl/core/` | Stages, pipeline registers, datapath, control, CSRs and traps |
+| `rtl/memory/`, `rtl/peripherals/`, `rtl/soc/` | Memories, machine timer, top-level wrapper and MMIO decoder |
+| `tb/` | SystemVerilog testbenches and the Cocotb test in `tb/cocotb/reg_file/` |
+| `programs/` | My assembly test programs (`asm/`) and their images (`hex/`) |
+| `sim/` | Build and test scripts |
+| `software/` | Linker script, a minimal trap runtime, the ISA-lite environment and build scripts |
+| `docs/` | Diagrams, design notes, verification, plans, backlog and tool notes |
+| `tools/` | Upstream checkouts such as riscv-tests, not part of this repository |
 
-These directories group source files by responsibility. The current core still
-instantiates the internal memories, MMIO decoder, and timer; moving their
-integration into the SoC is part of the Phase 5 interface work.
+My design notes are on the [core architecture](docs/core-architecture.md),
+[CSRs, traps and the timer](docs/csr-trap-design.md),
+[verification](docs/verification.md) and the
+[phase plans](docs/plans/README.md). I also keep learning notes on
+[data-memory addressing](docs/data-memory-addressing.md) and the
+[tool chain](docs/tool-chain-notes/).
 
-## Documentation
-
-- [Datapath diagram](docs/Datapath_v1.4.2.svg)
-- [Core architecture](docs/core-architecture.md)
-- [Verification strategy and evidence](docs/verification.md)
-- [CSR, exceptions, and machine-timer design](docs/csr-trap-design.md)
-- [Data-memory addressing notes](docs/data-memory-addressing.md)
-- [Phased implementation plan](docs/plans/README.md)
-- [Deferred ideas](docs/backlog.md)
-- [Tool-chain notes](docs/tool-chain-notes/)
-
-[AGENTS.md](AGENTS.md) defines a teaching-first AI collaboration workflow: the
-author leads design, implementation, and validation, with AI supporting
-explanations, design discussions, and review. [agent_context.md](agent_context.md)
-provides a concise project map, current status, and technical boundaries.
-
-## Project Direction
-
-I plan to tackle the next steps in this order:
-
-1. Freeze the CPU-to-SoC request/response contract.
-2. Integrate a minimal SoC and bring it up on the NEXYS Artix-7 board.
-3. Establish a system-level software and verification baseline.
-4. Add Cache and FPU, followed by lightweight RTOS integration.
-
-These are planned milestones. See the [phase plans and exit criteria](docs/plans/README.md#phase-list)
-for their dependencies and completion standards.
-
-Future ideas that are worth keeping but are not active work belong in
-[`docs/backlog.md`](docs/backlog.md).
+I use AI as a tutor and reviewer here. I lead the design, implementation and
+testing, and AI explains, discusses designs with me and reviews my work. The
+rules are in [AGENTS.md](AGENTS.md).

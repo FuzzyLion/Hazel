@@ -7,7 +7,7 @@ Hard limit: 2 weeks
 
 ## Goal
 
-Once the CPU, CSR path, and minimal SoC are stable, establish a system-level software baseline. This gives us one known-good version before Cache and FPU integration begins.
+Once the CPU, the CSR path and the minimal SoC are stable, I want a system-level software baseline. That gives me one known-good version before the cache and FPU come in.
 
 ## Detailed Tasks
 
@@ -52,12 +52,10 @@ Once the CPU, CSR path, and minimal SoC are stable, establish a system-level sof
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
-1. Which tests form your "known good" system baseline?
+1. Which tests form my known-good system baseline?
 2. Why is that baseline strong enough before introducing Cache and FPU?
 3. Which remaining failures are acceptable, and which are blocking?
-4. How do you compare simulation behavior with board behavior?
-5. What metrics tell you the project is stable enough for major extensions?
+4. How do I compare simulation behavior with board behavior?
+5. What metrics tell me the project is stable enough for major extensions?

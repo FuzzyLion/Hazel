@@ -7,7 +7,7 @@ Hard limit: 4 weeks
 
 ## Goal
 
-Once the main pipeline, Cache, and FPU are integrated, complete the final system bring-up and verify that the processor can support higher-level software.
+Once the pipeline, the cache and the FPU are integrated, I want to finish the final system bring-up and show that the processor can run higher-level software.
 
 ## Detailed Tasks
 
@@ -54,12 +54,10 @@ Once the main pipeline, Cache, and FPU are integrated, complete the final system
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
 1. What exact hardware features made RTOS bring-up possible?
-2. If RTOS fails, how do you separate interrupt bugs from memory bugs, Cache bugs, FPU bugs, or context-switch bugs?
-3. Which parts of your processor design became most important only at full-system level?
+2. If the RTOS fails, how do I separate interrupt bugs from memory, cache, FPU or context-switch bugs?
+3. Which parts of my design only became important at the full-system level?
 4. What limitations still exist in the design?
-5. If you had to present this project in an interview in 3 minutes, how would you explain the architecture and the hardest parts you solved?
+5. If I had 3 minutes in an interview, how would I explain the architecture and the hardest parts I solved?

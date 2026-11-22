@@ -1,228 +1,199 @@
 # Core Architecture
 
-This document describes the architecture that exists in the current RTL. It
-is a reader-facing overview of the whole core; detailed trap behavior and test
-strategy live in their own documents.
+Hazel's core is a 32-bit, in-order, single-issue pipeline with the usual five
+stages (IF, ID, EX, MEM and WB). It decodes all of RV32I except `fence`,
+which traps as an illegal instruction for now. It also has a small
+machine-mode trap path with a one-shot timer interrupt. The trap side has its
+own notes in [CSRs, traps and the timer](csr-trap-design.md).
+
+I split the core into many small modules with explicit ports. `core.sv` needs
+more wiring that way, but every control signal stays visible, which makes the
+pipeline easier for me to check and explain.
 
 ## Datapath Overview
 
-[![Five-stage core datapath, control, forwarding, CSR and trap logic, and timer MMIO](Datapath_v1.4.2.svg)](Datapath_v1.4.2.svg)
+I keep the datapath in two versions. The
+[simplified diagram](Datapath_Simplified_v1.0.1.svg) shows the main blocks of
+each stage with related signals grouped into bundles, so it's the better first
+read. The complete diagram below has every signal, and the rest of this
+section follows it.
 
-[Open the full-size diagram](Datapath_v1.4.2.svg) to read the signal labels and design
-notes. Black lines carry data and blue lines carry control. The drawing uses
-`F`, `D`, `E`, `M`, and `W` suffixes for Fetch, Decode, Execute, Memory, and
-Writeback.
+[![Complete five-stage core datapath with every signal, forwarding, hazard control, CSR and trap logic, MMIO and the machine timer](Datapath_v1.5.1.svg)](Datapath_v1.5.1.svg)
 
-Read the drawing in three passes:
+The [full-size diagram](Datapath_v1.5.1.svg) shows every signal label and the
+notes I put on it. Black lines carry data and blue lines carry control. The
+suffixes `F`, `D`, `E`, `M` and `W` say which stage a signal belongs to.
 
-1. Follow an instruction from the PC and instruction memory through Decode,
-   Execute, Memory, and Writeback. The four vertical pipeline registers carry
-   its data, control, and validity between stages.
-2. Trace the MEM and WB feedback paths into the EX operand muxes. The Hazard
-   Unit at the bottom selects forwarding sources and controls stalls and
-   flushes; the sections below explain the priority rules.
-3. Follow the redirect paths back to the PC mux. `pc_target_gen.sv` handles
-   branch/jump targets and target alignment, `trap_ctrl.sv` arbitrates traps and
-   produces metadata, and `csr_file.sv` owns the saved state used by trap entry
-   and `mret`.
+It's easiest to read in three passes.
 
-The CSR Access Ctrl, CSR Read/Modify, CSR State & Update, and MIP View blocks
-describe internal responsibilities of `csr_file.sv`. Interrupt-enable checks
-and trap arbitration belong to `trap_ctrl.sv`. The drawing separates these
-responsibilities visually; [core.sv](../rtl/core/core.sv) connects five stage
-modules and the Hazard Unit, using the bundles in
-[core_types_pkg.sv](../rtl/core/core_types_pkg.sv).
+1. Follow one instruction from the PC and instruction memory through Decode,
+   Execute, Memory and Writeback. The four vertical pipeline registers carry
+   its data, control and `valid` bit between stages.
+2. Trace the MEM and WB feedback paths into the EX operand muxes. The hazard
+   unit at the bottom picks the forwarding sources and drives stalls and
+   flushes.
+3. Follow the redirect paths back to the PC mux. `pc_target_gen.sv` forms
+   branch and jump targets, `trap_ctrl.sv` picks the trap, and `csr_file.sv`
+   holds the state that trap entry and `mret` use.
 
-## 1. Design Boundary
+The CSR Access Ctrl, CSR Read/Modify, CSR State & Update and MIP View boxes
+show the separate jobs inside `csr_file.sv`. In the RTL they are one module.
+The interrupt-enable check and trap priority live in `trap_ctrl.sv`.
 
-The processor is a 32-bit, in-order, single-issue pipeline organized around
-five stages: `IF`, `ID`, `EX`, `MEM`, and `WB`. It targets a practical RV32I
-teaching subset and adds the minimum machine-mode CSR, trap, and timer behavior
-needed for the next SoC phase.
+## Where the RTL Lives
 
-The current top-level integration is `rtl/core/core.sv`. `rtl/soc/top.sv` is a
-thin wrapper and remains the future handoff point for board- and SoC-level
-integration.
-
-The design favors explicit modules and visible control signals. This makes the
-pipeline easier to inspect and explain, even when that costs a little more
-wiring in `core.sv`.
-
-### RTL Source Organization
-
-| Path under `rtl/` | Responsibility |
+| Path under `rtl/` | What's there |
 | --- | --- |
-| `core/` | Connections between stage modules and the Hazard Unit in `core.sv`; shared types in `core_types_pkg.sv` |
-| `core/stages/` | Independent `if_stage`, `id_stage`, `ex_stage`, `mem_stage`, and `wb_stage` modules with explicit ports |
-| `core/pipeline/` | The four pipeline registers: `IF_ID`, `ID_EX`, `EX_MEM`, and `MEM_WB` |
-| `core/datapath/` | ALU, register file, immediate and instruction-field extraction, PC logic, operand/writeback muxes, and load/store formatting |
-| `core/control/` | Instruction decode and hazard control |
-| `core/csr/` | CSR state and trap arbitration, kept in separate modules |
-| `memory/` | Internal instruction and data memory arrays |
+| `core/` | `core.sv`, which connects the stages and the hazard unit, and the shared types in `core_types_pkg.sv` |
+| `core/stages/` | `if_stage`, `id_stage`, `ex_stage`, `mem_stage` and `wb_stage` |
+| `core/pipeline/` | The four pipeline registers `IF_ID`, `ID_EX`, `EX_MEM` and `MEM_WB` |
+| `core/datapath/` | ALU, register file, immediate and field extraction, PC logic, operand and writeback muxes, load/store formatting |
+| `core/control/` | Instruction decode and the hazard unit |
+| `core/csr/` | CSR state and trap priority, as two separate modules |
+| `memory/` | Instruction and data memory arrays |
 | `peripherals/` | Machine timer |
-| `soc/` | Top-level wrapper, MMIO decoder, and system address map |
+| `soc/` | Top-level wrapper, MMIO decoder and address map |
 
 Integrated simulations and editor lint use [rtl/filelist.f](../rtl/filelist.f).
-Its paths are relative to the repository root, and packages precede the modules
-that import them. Module tests list only their required source files.
+Its paths start at the repository root, with packages first.
 
-This layout groups files by responsibility. Instruction memory remains inside
-`if_stage`, while data memory, the MMIO decoder, and the timer remain inside
-`mem_stage`, all below `core`. Moving that integration to the SoC layer requires
-the Phase 5 CPU request/response contract.
+The folders group files by job. The instance tree is different. Instruction
+memory still sits inside `if_stage`, and data memory, the MMIO decoder and the
+timer sit inside `mem_stage`, all below `core`. `soc/top.sv` only wraps the
+core so far. I'll move those blocks up to the SoC level in Phase 5, once the
+CPU has a request/response memory interface.
 
-## 2. Pipeline Stages
+## Pipeline Stages
 
-| Stage | Main work | State passed forward |
+| Stage | What it does | What it passes on |
 | --- | --- | --- |
-| `IF` | Hold the PC, fetch one 32-bit instruction, and compute `PC + 4` | PC, instruction, and `PC + 4` |
-| `ID` | Decode control, read the register file, extract register fields, and generate the immediate | Source values and indexes, destination index, immediate, instruction metadata, and control |
-| `EX` | Apply forwarding, select ALU operands, compute ALU results and addresses, resolve branch/jump targets, execute CSR operations, and arbitrate traps | ALU result, store data, destination index, `PC + 4`, CSR read data, and reduced control |
-| `MEM` | Format stores, decode timer MMIO, access data memory, and extract or extend load data | ALU result, load result, destination index, `PC + 4`, CSR read data, and writeback control |
-| `WB` | Select the final result and write the register file | Architectural register-file update |
+| IF | Holds the PC, fetches one instruction and computes `PC + 4` | PC, instruction, `PC + 4` |
+| ID | Decodes control, reads the register file, extracts register fields and builds the immediate | Source values and indexes, destination index, immediate, instruction, control |
+| EX | Forwards operands, runs the ALU, forms data addresses and branch/jump targets, runs CSR instructions and decides traps | ALU result, store data, destination index, `PC + 4`, CSR read data, reduced control |
+| MEM | Formats stores, decodes timer MMIO, accesses data memory, extracts and extends load data | ALU result, load result, destination index, `PC + 4`, CSR read data, writeback control |
+| WB | Selects the final result and writes the register file | Register file update |
 
-The four pipeline registers carry explicit `valid` bits. Flushes insert bubbles
-by clearing validity and side-effecting controls rather than allowing wrong-path
-or faulting instructions to continue.
+Every pipeline register carries a `valid` bit. A flush clears it and loads NOP
+control. On a normal clock edge, each register also ANDs the side-effect
+controls it carries (register write, memory write, jump, branch, `mret`) with
+`valid`. A flushed instruction therefore becomes a bubble that can't write
+anything or move the PC. The trap event is gated the same way. A bubble's
+instruction bits are all zero, which would otherwise decode as an illegal
+instruction.
 
-### Stage Module Boundaries
+### Stage Modules
 
-Each stage is an ordinary `.sv` module with its own `core_types_pkg` import and
-explicit input/output ports. `core.sv` instantiates the stages and connects
-pipeline bundles, writeback feedback, redirects, timer IRQ, and hazard control.
-Stage wiring does not use textual `.svh` includes or require an include directory.
+Until October 2026 all the stage wiring lived in `core.sv`. Then I split it
+into five plain `.sv` modules with explicit ports and no `.svh` includes.
+[core.sv](../rtl/core/core.sv) now instantiates them and the hazard unit and
+wires them together with the bundles from
+[core_types_pkg.sv](../rtl/core/core_types_pkg.sv).
 
-| Source | Instance under `core` | Internal wiring and outgoing register |
+| Source | Instance | What's inside |
 | --- | --- | --- |
-| [if_stage.sv](../rtl/core/stages/if_stage.sv) | `if_stage1` | PC mux/register, `PC + 4`, instruction memory, and `IF_ID` |
-| [id_stage.sv](../rtl/core/stages/id_stage.sv) | `id_stage1` | Control decode, register file, instruction fields, immediate, and `ID_EX` |
-| [ex_stage.sv](../rtl/core/stages/ex_stage.sv) | `ex_stage1` | Forwarding, ALU, target generation, separate CSR/trap modules, and `EX_MEM` |
-| [mem_stage.sv](../rtl/core/stages/mem_stage.sv) | `mem_stage1` | Load/store formatting, data memory, timer/MMIO, and `MEM_WB` |
-| [wb_stage.sv](../rtl/core/stages/wb_stage.sv) | `wb_stage1` | Final result mux; no additional pipeline register |
+| [if_stage.sv](../rtl/core/stages/if_stage.sv) | `if_stage1` | PC mux and register, `PC + 4`, instruction memory, `IF_ID` |
+| [id_stage.sv](../rtl/core/stages/id_stage.sv) | `id_stage1` | Control decode, register file, instruction fields, immediate, `ID_EX` |
+| [ex_stage.sv](../rtl/core/stages/ex_stage.sv) | `ex_stage1` | Forwarding muxes, ALU, target generation, `trap_ctrl`, `csr_file`, `EX_MEM` |
+| [mem_stage.sv](../rtl/core/stages/mem_stage.sv) | `mem_stage1` | Load/store formatting, data memory, MMIO decoder, timer, `MEM_WB` |
+| [wb_stage.sv](../rtl/core/stages/wb_stage.sv) | `wb_stage1` | Final result mux, no pipeline register |
 
-The producing stage owns its outgoing pipeline register. Consequently,
-`ex_stage1` produces the registered MEM bundle and also uses its ALU/CSR result
-for forwarding back into EX. `wb_stage1` returns the selected result to both EX
-and the register-file write port in `id_stage1`; the write-enable and destination
-index still come from WB. Physical placement of the register file in the ID
-wrapper does not move architectural writeback into Decode.
+Each stage owns the pipeline register on its output, so `EX_MEM` sits inside
+`ex_stage1`. Its outputs (the ALU and CSR results now in MEM) also feed back
+into the EX forwarding muxes. `wb_stage1` sends the selected result to EX and
+to the register file write port in `id_stage1`. The register file sits in the
+ID module, but its write enable and destination index come from WB, so the
+write itself still happens in WB.
 
-These wrappers add hierarchy, not clock cycles. There are still four pipeline
-registers and five stages. The Hazard Unit remains a separate instance in
-`core.sv`, and EX still owns trap arbitration and CSR updates. Internal-state
-observation paths now pass through the appropriate stage instance; see the
-[verification guide](verification.md#stage-hierarchy-and-observation-paths).
+The stage modules add hierarchy, not cycles. There are still five stages and
+four pipeline registers. Signals that the testbenches and Vivado observe now
+go through the stage instances, as described in
+[verification](verification.md#stage-hierarchy-and-observation-paths).
 
-## 3. Control Ownership
+## Who Decides What
 
-The core keeps detection, policy, state, and redirection separate:
+I split control so that each block has one job. A block that detects an event
+reports it. It doesn't also decide priority or change architectural state.
 
-| Block | Responsibility |
+| Block | Its job |
 | --- | --- |
-| `control_unit.sv` | Decode instructions and produce the Decode-stage control bundle |
-| `hazard_unit.sv` | Choose forwarding sources and generate pipeline stall/flush controls |
-| `alu_op.sv` | Execute integer operations, evaluate branches, form data addresses, and classify load/store misalignment |
-| `pc_target_gen.sv` | Form branch/jump targets, decide normal redirects, and classify instruction-target misalignment |
-| `trap_ctrl.sv` | Select the authoritative exception or interrupt and produce trap metadata and flush requests |
-| `csr_file.sv` | Own persistent CSR state and apply CSR, trap-entry, and `mret` updates |
-| `pc_mux.sv` | Select sequential, normal redirect, `mret`, or trap-entry PC values |
+| `control_unit.sv` | Decodes the instruction into the ID control bundle |
+| `hazard_unit.sv` | Picks forwarding sources and drives stalls and flushes |
+| `alu_op.sv` | Runs integer operations, compares branches, forms data addresses and flags misaligned loads and stores |
+| `pc_target_gen.sv` | Forms branch and jump targets, decides normal redirects and flags misaligned targets |
+| `trap_ctrl.sv` | Picks the one exception or interrupt that wins and produces its trap data and flush requests |
+| `csr_file.sv` | Holds the CSR state and applies CSR instructions, trap entry and `mret` |
+| `pc_mux.sv` | Selects `PC + 4`, a branch or jump target, `mepc` for `mret`, or `mtvec` on trap entry |
 
-This split is intentional. A detection block reports what happened; it does
-not also decide global priority or mutate architectural state.
+## Hazards and Redirects
 
-## 4. Hazard and Redirect Rules
+Each EX operand can come from the ID/EX register, the ALU or CSR result in
+MEM, or the WB result. When the instructions in MEM and WB both write the
+register EX needs, MEM wins. Its value is newer. Store data takes the forwarded
+`rs2` before the immediate mux in front of the ALU, so `sw` stores the register
+value and never its immediate. A load in MEM is never forwarded. Its data only
+comes out of data memory late in that cycle, too late for the ALU of the
+instruction right behind it.
 
-Both EX operands can use their original ID/EX values, a MEM-stage ALU result, a
-MEM-stage CSR result, or the WB result. A MEM-stage load is not forwarded
-directly because its data is not available early enough for the immediately
-following EX-stage consumer.
+So when a valid load in EX writes a nonzero register that the valid instruction
+in ID reads, the hazard unit stalls IF and ID for one cycle and flushes EX.
+After that bubble, the load reaches WB just as the waiting instruction reaches
+EX, and WB forwarding supplies the value. The stall only fires when the ID
+instruction really reads that register, which decode reports through
+`uses_rs1_D` and `uses_rs2_D`. Without them, the immediate bits in `lui` or
+`jal` could match the load's destination and stall for nothing.
 
-When a valid EX-stage load writes a nonzero destination used by the valid
-Decode-stage instruction, the core stalls Fetch and Decode and flushes Execute
-for one cycle. This inserts the bubble needed before WB forwarding can satisfy
-the dependency.
+I resolve branches and jumps in EX. A taken one throws away the two younger
+instructions behind it (`flush_D` and `flush_E`), which costs two cycles.
+`mret` uses the same path with `mepc` as the target.
 
-Branches and jumps are resolved in EX. A taken redirect flushes the younger
-instructions in Decode and Execute. `mret` uses the same redirect mechanism.
-An accepted trap has priority over the ordinary redirect path and over a
-load-use stall.
-
-The practical priority is:
+The hazard unit checks these in a fixed order:
 
 ```text
 accepted trap
-  -> taken branch, jump, or mret
+  -> taken branch, jump or mret
   -> load-use stall
   -> normal flow
 ```
 
-## 5. Precise Trap Boundary
+The trap comes first because it cancels the EX instruction. Once that
+instruction won't commit, its branch target or the stall it causes no longer
+matters.
 
-The current precise boundary is the instruction in EX. When a synchronous
-exception or enabled timer interrupt is accepted:
+## Precise Traps
+
+EX is the precise boundary. When `trap_ctrl` accepts an exception or the timer
+interrupt, the instructions in flight end up like this:
 
 ```text
-older instruction in MEM  -> may complete once
-current instruction in EX -> does not enter MEM or commit
-younger instructions      -> are flushed
+older instructions in MEM and WB -> complete once
+instruction in EX                -> doesn't enter MEM, doesn't commit
+younger instructions in IF, ID   -> flushed
 ```
 
-For a synchronous exception, `mepc` records the faulting instruction. For the
-timer interrupt, the legal EX instruction is squashed and its PC is saved so
-`mret` can re-execute it. Synchronous exceptions take priority over the timer
-request at the same boundary.
+`mepc` gets the PC of the EX instruction. For the timer that instruction did
+nothing wrong, and `mret` runs it again. An exception in the same cycle beats
+the timer, and the timer request stays pending. The
+[trap notes](csr-trap-design.md) have the details.
 
-See [`csr-trap-design.md`](csr-trap-design.md) for CSR masks, trap causes,
-metadata rules, and timer details.
+## Memory and MMIO
 
-## 6. Memory and MMIO
+Instruction and data memory are word arrays inside the core, 256 words (1 KiB)
+each. The core hands them byte addresses. The low two bits pick a byte lane or
+are dropped, and everything above bit 9 is ignored, so addresses wrap around
+every 1 KiB. `store_data.sv` and `load_data.sv` do the byte and halfword
+formatting. Both memories read combinationally, and data memory writes on the
+rising clock edge.
 
-The current instruction and data memories are internal word arrays that receive
-byte addresses from the core. The low address bits select a byte lane or are
-dropped when indexing the word array. Byte and halfword access formatting is
-split between `store_data.sv` and `load_data.sv`.
+CPU reset doesn't clear data memory. I keep memory initialization apart from
+reset on purpose, since a reset loop over the array would stop Vivado from
+inferring a RAM.
 
-Data memory is not cleared by CPU reset. Memory initialization and CPU reset
-are separate responsibilities, which also keeps the RTL compatible with later
-RAM inference.
+The only MMIO so far is the timer's compare register, `mtimecmp`, with its low
+and high halves at `0x1000_0000` and `0x1000_0004`. `mmio_decoder.sv` keeps
+every store to those two addresses out of data RAM, and only `sw` actually
+writes the timer. `machine_timer.sv` holds `mtime`, `mtimecmp` and the timer
+request. There's no MMIO read path yet.
 
-The first MMIO path recognizes two aligned full-word store addresses for the
-low and high halves of `mtimecmp`. `mmio_decoder.sv` routes those writes away
-from data RAM, and `machine_timer.sv` owns `mtime`, `mtimecmp`, and the timer
-request.
-
-The core does not yet expose a request/response memory interface. Freezing that
-boundary is the first Phase 5 architecture task because SoC peripherals, FPGA
-memory, and the later Cache all depend on it.
-
-## 7. Current Boundary and Known Limitations
-
-The current RTL and tests establish a focused baseline, not complete ISA or
-privileged compliance. Important limitations include:
-
-- No external request/response memory interface or full SoC integration;
-  `rtl/soc/top.sv` is currently a thin wrapper
-- No software or external interrupts
-- No vectored `mtvec`, nested traps, or production-quality context-save runtime
-- Timer support is one-shot; periodic scheduling is not implemented
-- Upstream ISA-lite tests do not initialize data memory from ELF sections
-- Instruction memory is currently limited to 256 words
-- Program-level exception coverage is directed rather than exhaustive
-- Cache, FPU, FPGA integration, and RTOS support remain future phases
-
-These limitations are deliberate scope boundaries. New features should keep
-the five-stage behavior explainable and preserve the existing regression.
-
-## 8. Source of Truth
-
-Use the documents according to their roles:
-
-- This file explains the whole-core architecture.
-- [`Datapath_v1.4.2.svg`](Datapath_v1.4.2.svg) provides the visual map of data and control flow.
-- [`csr-trap-design.md`](csr-trap-design.md) owns CSR, exception, and interrupt rationale.
-- [`verification.md`](verification.md) owns verification strategy and evidence.
-- [`plans/README.md`](plans/README.md) owns the project goals, completion
-  standard, and phased roadmap.
-
-When a document conflicts with the implementation, trust the RTL and the
-current regression, then update the document.
+The core has no request/response memory interface yet. Defining one is my
+first Phase 5 task, because the SoC peripherals, FPGA block RAM and the later
+cache all connect through it.

@@ -7,7 +7,7 @@ Hard limit: 3 weeks
 
 ## Goal
 
-Move the CPU from “a core that works in simulation” to “a minimal system that can run a program on the board.”
+I want to go from a core that works in simulation to a minimal system that runs a program on the board.
 
 ## Detailed Tasks
 
@@ -35,7 +35,11 @@ Move the CPU from “a core that works in simulation” to “a minimal system t
 
 1. How does a slow peripheral feed a stall back to the CPU?
 2. How do peripheral and main-memory addresses fit into one address map?
-3. During board bring-up, how do we quickly tell whether a problem belongs to the CPU, SoC integration, or a peripheral?
+3. During board bring-up, how do I quickly tell whether a problem is in the CPU, the SoC integration or a peripheral?
+4. Which pipeline registers hold during a memory wait? Freezing only Fetch and Decode isn't enough once MEM can wait.
+5. Does a memory wait or a branch redirect win?
+6. Who inserts the bubble when a memory wait and a load-use stall happen together?
+7. How does a held load or store avoid committing twice or losing its response?
 
 ## Deliverables
 
@@ -65,12 +69,10 @@ Move the CPU from “a core that works in simulation” to “a minimal system t
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
-1. What is your address map, and why did you choose it?
+1. What is my address map, and why did I choose it?
 2. How does a slow peripheral stall or delay the CPU safely?
-3. If the board shows wrong behavior, how do you determine whether the fault is in CPU, SoC glue, memory map, or peripheral logic?
+3. If the board misbehaves, how do I tell whether the fault is in the CPU, the SoC glue, the memory map or a peripheral?
 4. What assumptions changed when moving from simulation to FPGA?
-5. Why is your SoC integration structure still compatible with later Cache work?
+5. Why does my SoC structure still fit the later cache work?

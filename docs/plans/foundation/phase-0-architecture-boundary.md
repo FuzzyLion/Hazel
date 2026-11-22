@@ -7,11 +7,11 @@ Hard limit: 1 week
 
 ## Goal
 
-Before writing a large amount of RTL, freeze the first version's feature scope, module boundaries, key control policies, and interface semantics. This should prevent broad rework later when Hazard control, CSR, Cache, and FPU are added.
+Before writing much RTL, I want to freeze the first version's feature scope, module boundaries, key control policies and interface semantics, so adding hazard control, CSRs, the cache and the FPU later doesn't force a broad rework.
 
 ## Implementation Status
 
-This document records the original architecture target. The current baseline
+This plan records my original architecture target. The current baseline
 through the minimum Phase 4 milestone uses internal instruction and data
 memories. The request/response ports and variable-latency holds described below
 are deferred to Phase 5. Read the
@@ -100,7 +100,7 @@ Model the pipeline registers separately:
 3. `ex_mem`
 4. `mem_wb`
 
-This separation gives us:
+Keeping them separate gives me:
 
 1. A clearer boundary between combinational stage logic and cross-stage sequential state
 2. Cleaner stall and flush behavior
@@ -355,12 +355,10 @@ If the project adds the `M` extension later, treat it as a multi-cycle integer e
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
-1. Why did you choose the current instruction subset for the first version?
+1. Why did I choose the current instruction subset for the first version?
 2. Why is `branch` resolved in `EX` instead of `ID`?
 3. What exact problem does the handshake memory interface solve for later phases?
 4. Which pipeline register fields are essential, and which are derived?
-5. Where do you expect Cache and FPU to hook into the design later?
+5. Where do I expect the cache and FPU to hook into the design later?

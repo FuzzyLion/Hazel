@@ -7,7 +7,7 @@ Hard limit: 2 weeks
 
 ## Goal
 
-Move from “we can debug it until it works” to repeatable regression, so every change can reveal problems quickly.
+I want to move from "debug it until it works" to a repeatable regression, so every change shows its problems quickly.
 
 ## Detailed Tasks
 
@@ -60,12 +60,10 @@ Move from “we can debug it until it works” to repeatable regression, so ever
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
-1. How do you know your tests are checking behavior rather than just reproducing implementation details?
+1. How do I know my tests check behavior and don't just copy implementation details?
 2. Which bugs are easiest to catch with module tests, and which need program-level tests?
-3. How are `riscv-tests` integrated into your flow?
-4. If a regression appears, how do you localize it quickly?
-5. What would make you introduce Cocotb, and what would you use it for first?
+3. How are the `riscv-tests` integrated into my flow?
+4. If a regression appears, how do I localize it quickly?
+5. What would make me introduce Cocotb, and what would I use it for first?

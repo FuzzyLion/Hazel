@@ -1,100 +1,87 @@
 # Verification
 
-This document is the long-term home for the project's verification strategy,
-evidence, and known gaps. The Phase 3 baseline is established, and the directed
-regression now also covers the minimum Phase 4 CSR, precise-trap, and one-shot
-machine-timer path. It should continue to grow through Phase 6 and later
-extensions.
+I verify Hazel in Verilator with directed SystemVerilog testbenches at two
+levels: module tests that drive one block, and smoke programs that run through
+the whole pipeline. On top of that, 19 upstream `rv32ui` tests run in a small
+local environment I call ISA-lite, and the register file has one Cocotb test
+that I wrote to learn Cocotb. Together they show that the cases I wrote behave
+as intended. They don't prove full RV32I or privileged-spec compliance, and
+[Known Gaps](#known-gaps) lists what I know is missing.
 
-The goal is not to present a green regression as proof of complete RISC-V
-compliance. It is to keep one clear baseline that catches datapath, control,
-hazard, trap, and program-level integration bugs as the system grows.
+## Two Levels of Tests
 
-## Current Scope
+Module tests drive one block through its ports, so a failure points at one
+signal or rule. Smoke programs run real instruction streams through the
+integrated core and check registers and memory at the end. They find what
+module tests can't see, such as forwarding, pipeline-register fields, redirect
+flushing, writeback selection and how neighboring instructions interact.
 
-The current core is a five-stage RV32I-style pipeline with directed support for
-integer ALU operations, ALU-immediate operations, branches, jumps, loads,
-stores, forwarding, load-use stalls, and EX-stage redirects. It also implements
-a focused Machine Mode path with six base CSR forms, `ecall`, `ebreak`, `mret`,
-selected precise synchronous exceptions, and one machine-timer interrupt.
+When a smoke failure exposes a local bug, I also add a module check for it.
+The register-file bypass bug went that way. The hazard smoke caught it, and
+afterwards `reg_file_tb` got `test_bypass`.
 
-This system support is deliberately narrow. The regression does not prove full
-RV32I coverage, privileged-architecture compliance, nested traps, a general
-ABI-safe runtime, software or external interrupts, or periodic timer behavior.
+## What the Regression Runs
 
-Verification has two layers:
+`sim/run_regression.sh` runs 20 entries: seven module tests, twelve smoke
+programs and one Cocotb runner. The [simulation guide](../sim/README.md) has
+the commands and output paths.
 
-- Module-level Verilator tests check focused combinational or local sequential behavior: decode control, immediate generation, ALU operations, register-file semantics, data-memory byte lanes, branch-target generation, and hazard control.
-- Program-level smoke and ISA-lite tests run real instruction streams through the integrated pipeline and check their architectural effects.
+### Module Tests
 
-The two layers are intentionally complementary. Module tests are better at localizing a broken control signal or datapath rule. Program-level tests are better at finding integration bugs in forwarding, pipeline-register fields, redirect flushing, writeback selection, and instruction-to-instruction interactions.
+| Testbench | What it checks |
+| --- | --- |
+| `control_unit_tb.sv` | The control bundle for every implemented instruction, `uses_rs1_D` and `uses_rs2_D`, `ecall`, `ebreak`, `mret`, all six CSR forms, and unsupported encodings such as a bad funct3, a bad funct7 or a malformed `mret` |
+| `imm_ext_tb.sv` | I, S, B, J and U immediates and the default case |
+| `alu_op_tb.sv` | Every ALU operation with edge cases, both outcomes of all six branches, and the load/store alignment flags |
+| `pc_target_gen_tb.sv` | PC-relative and JALR targets, JALR bit-0 clearing, redirect decisions, `mret`, and misaligned targets, which only trap when taken |
+| `reg_file_tb.sv` | Reset, synchronous write, combinational reads, x0 and the WB bypass |
+| `data_mem_tb.sv` | Synchronous write, combinational read, write disable, byte lanes and word indexing |
+| `hazard_unit_tb.sv` | Forwarding sources and their priority, CSR forwarding, load-use stalls, ignored source fields, redirect and trap flushes, and that invalid stages never forward or stall |
 
-The register file also has a Cocotb test next to its directed SV test. It is
-the only Cocotb test in the project and adds a Python reference model and
-seeded random stimulus; see [Cocotb Regfile Checks](#cocotb-regfile-checks).
+### Smoke Programs
 
-### Source-Register Usage and Load-to-JALR Coverage
+| Program | What it checks |
+| --- | --- |
+| `smoke_basic` | `addi`, `add`, `sw`, `lw` and `auipc` with NOPs between them, so no hazards |
+| `smoke_branch` | A taken `beq` flushes the two wrong-path instructions |
+| `smoke_alu` | Immediate ALU instructions and both outcomes of all six branches, with a completion code in `x31` |
+| `smoke_hazard` | MEM and WB forwarding, the register-file bypass, a store, and a `lw` straight into `jalr` |
+| `smoke_csr_trap` | All six CSR forms with old-value writeback and pure reads, two `ebreak` sites, one `ecall`, handler register preservation, `mepc` and `mret` |
+| `smoke_illegal_trap`, `smoke_instr_misaligned_trap`, `smoke_load_misaligned_trap`, `smoke_store_misaligned_trap` | One precise exception each |
+| `smoke_unsupported_csr_trap` | `csrrw` to the unsupported CSR `0x7c0`, with interrupts on and no timer request |
+| `smoke_sync_exception_timer_priority` | The same fault while the timer is pending and enabled |
+| `smoke_timer_interrupt` | Timer programming through MMIO, enable gating, delivery, one-shot acknowledgement and `mret` re-execution |
 
-The control-unit test checks `uses_rs1_D` and `uses_rs2_D` for representative
-integer, load/store, branch/jump, and system instructions, including all six CSR
-forms. The hazard-unit test drives those inputs explicitly and checks both real
-load-use dependencies and ignored immediate/CSR fields. These module checks
-cover decode outputs and hazard decisions at their respective boundaries.
+The `lw` into `jalr` case in `smoke_hazard` loads a code address from data RAM
+and jumps to it right away. Its testbench requires exactly one load-use stall
+with IF and ID held and a bubble in EX, the loaded target, the link address,
+an untouched wrong-path marker and a reached target marker. That checks
+decode, the stall, WB forwarding of the load result and the JALR redirect
+together for this one sequence.
 
-The existing hazard smoke program also stores a code address in data RAM, then
-executes `lw x11, 4(x1)` immediately followed by `jalr x12, 0(x11)`. Its TB
-requires exactly one load-use overlap with Fetch/Decode held and an EX bubble,
-the loaded target and link address, a flushed wrong-path marker, and a reached
-target marker. This provides an integrated check of decode, stall, load-result
-forwarding, and JALR redirection for this sequence. It does not cover every
-source-use encoding or memory-wait timing.
+### How the Trap Smokes Check Precision
 
-## Current Directed Baseline
+The four precise-exception smokes share one pattern. A marker before the
+faulting instruction must commit, the faulting instruction must have no side
+effect, and a marker after it must be flushed. The testbenches also check the
+trap data in `mcause`, `mepc` and `mtval`.
 
-`sim/run_regression.sh` registers nineteen directed SV tests and one Cocotb
-runner:
+`smoke_unsupported_csr_trap` and `smoke_sync_exception_timer_priority` both
+fault on `csrrw s3, 0x7c0, t4`. Both require cause 2, the faulting PC in
+`mepc`, the instruction bits in `mtval`, the trap redirect, D/E/M flushing, an
+unchanged `s3`, an older committed marker, a flushed younger marker and the
+fatal handler's signature.
 
-- Seven module tests for control decode, immediate generation, ALU behavior,
-  PC-target generation, the register file, data memory, and hazard control
-- Twelve processor smoke tests for basic execution, branch flushing, hazards,
-  ALU/branch behavior, mixed CSR and synchronous traps, four directed precise
-  exception cases, unsupported CSR access and synchronous-exception priority,
-  and one-shot machine-timer delivery
-- One Cocotb runner that runs the Regfile test with stimulus seeds `1`, `42`,
-  and `2026`
-
-The four precise-exception smokes cover illegal instruction,
-instruction-address misalignment, load-address misalignment, and store-address
-misalignment. They check trap metadata, younger-instruction flushing, and a
-cause-specific suppressed side effect. The timer smoke checks MMIO programming
-of `mtimecmp`, interrupt-enable gating, cause 7 delivery, precise flushing,
-handler acknowledgement, and `mret` recovery.
-
-`core_smoke_unsupported_csr_trap_tb.sv` runs a legal `CSRRW` encoding targeting
-the unsupported CSR address `0x7c0`, with interrupts enabled and no timer
-request. `core_smoke_sync_exception_timer_priority_tb.sv` separately tests the
-collision using a real timer deadline of 80, programmed through MMIO. Its
-program waits for `mip.MTIP` with global interrupts disabled, enables
-`mie.MTIE`, then places the global-MIE enable immediately before the faulting
-CSR instruction. In the current EX-stage CSR implementation, MIE becomes 1
-as that instruction enters EX. A rising-edge monitor requires an observed
-valid unsupported access with MTIP, MTIE, and MIE all set at trap acceptance;
-it also records pending-before-enable. Neither test forces internal signals.
-
-Both cases require illegal-instruction cause 2, the faulting PC in `mepc`, the
-instruction bits in `mtval`, trap redirect and D/E/M flushing, preserved `rd`,
-an older committed marker, a flushed younger marker, and the fatal-handler
-signature. The collision case checks selected and latched metadata, proving
-that this synchronous exception wins over an enabled pending timer interrupt.
-The timer remains pending and its deadline unchanged in the fatal synchronous
-handler. This scheduling depends on the current EX-stage CSR update timing;
-other CSR forms and other synchronous-exception/timer combinations remain
-outside these two cases. The separate timer smoke covers timer-handler
-acknowledgement and `mret` recovery.
-
-These are directed proofs of selected behavior. They are not exhaustive tests
-of every instruction encoding, CSR access, alignment case, or older in-flight
-side effect.
+The priority test builds a real collision. It programs a deadline of 80
+through MMIO, waits for `mip.MTIP` with global interrupts off, enables
+`mie.MTIE`, and puts the `mstatus.MIE` write right before the faulting
+`csrrw`. Since CSRs update in EX, MIE turns on just as the `csrrw` enters EX. A
+monitor on the rising edge requires MTIP, MTIE and MIE to be set when the trap
+is accepted, and it records that MTIP was pending before the enables. The test
+also checks the selected and latched trap data, which shows the exception
+winning over the pending timer. The timer stays pending, with its deadline
+unchanged in the fatal handler. Neither test forces internal signals. If CSR
+writes ever move out of EX, the priority test needs a new setup.
 
 ### Cocotb Regfile Checks
 
@@ -122,89 +109,121 @@ against `read` after the inputs settle, and the model is updated only at the
 rising edge. After each loop, writes go off and both ports read back all 32
 registers.
 
-The biased loop also prints how often each mode was picked. The count goes up
-when the generator picks a mode, and no check reads it, so it shows what the
-generator chose and is not an independent functional-coverage check. The test
-only uses the module's ports, so its results stop at the module interface and
-say nothing about forwarding in the core or about ISA compliance. Three seeds
-with 200 random cycles each are still just a sample of the input space.
+The biased loop also prints how often each mode was picked. No check reads
+that count. It only shows what the generator chose and isn't an independent
+functional-coverage check.
 
-On 2026-11-20 I ran the three-seed batch and the full regression, and both
-passed. To make sure the test can fail, I pointed the Makefile at a temporary
-copy of `reg_file.sv` with the x0 mask removed from both read ports. The
-directed x0 check failed with expected 0, actual 50. In that check `rd` is 0
-and write enable is high, so without the mask the bypass forwards the WB value
-50 to x0. This was a one-off manual check. The copy is not in the repository,
-and the Makefile points at the original RTL again.
+To make sure the test can fail, I pointed the Makefile at a temporary copy of
+`reg_file.sv` with the x0 mask removed from both read ports. The directed x0
+check failed with expected 0, actual 50. In that check `rd` is 0 and write
+enable is high, so without the mask the bypass forwards the WB value 50 to x0.
+This was a one-off manual check on 2026-11-20. The copy is not in the
+repository, and the Makefile points at the original RTL again.
 
-Commands, dependencies, seed replay, and output paths are in the
+I'll only bring Cocotb to other modules when randomized memory latency, large
+test matrices or a golden-memory model for the cache make the extra Python
+flow worth it. Commands, dependencies, seed replay and output paths are in the
 [simulation guide](../sim/README.md#cocotb-regfile).
 
 ### Stage Hierarchy and Observation Paths
 
-Processor testbenches instantiate `top` as `dut`, which instantiates `core` as
-`core_processor`. The five stage wrappers introduce one hierarchy level below
-the core. Representative observation paths are:
+Processor testbenches instantiate `top` as `dut`, and `top` instantiates
+`core` as `core_processor`. The stage modules add one level below `core`.
+These are the paths I use most:
 
-| Observation | Path from `dut.core_processor` |
+| What I look at | Path from `dut.core_processor` |
 | --- | --- |
-| Register-file state and ISA-lite `x31` completion | `id_stage1.reg_file1.regs[...]` |
+| Register file, including the ISA-lite `x31` result | `id_stage1.reg_file1.regs[...]` |
 | Data RAM | `mem_stage1.data_mem1.mem[...]` |
 | Timer deadline | `mem_stage1.machine_timer1.mtimecmp` |
 | Saved trap CSRs | `ex_stage1.csr_file1.mcause_reg`, `.mepc_reg`, `.mtval_reg` |
-| Trap selection and E-to-M kill | `ex_stage1.trap_entry_E`, `.trap_mcause_E`, `.trap_flush_M` |
+| Trap selection and the E-to-M kill | `ex_stage1.trap_entry_E`, `.trap_mcause_E`, `.trap_flush_M` |
 | Fetch PC | `if_stage1.pc_F_out` |
 
-Cross-stage bundles and control signals, including `data_E_idex`, `ctrl_E`,
-`hazard_stallflush_ctrl`, `trap_flush_D/E`, and `timer_irq`, remain observable in
-`core`. Use a stage's ports or internal paths according to the boundary being
-checked; adding a wrapper does not expand a test's coverage claim.
+Cross-stage bundles and controls such as `data_E_idex`, `ctrl_E`,
+`hazard_stallflush_ctrl`, `trap_flush_D/E` and `timer_irq` are still visible
+in `core`. I pick the stage port or internal path that matches the block I'm
+checking. A deeper path doesn't make a test prove more.
 
-The 2026-10-28 stage-module refactor retained the leaf-module logic and all
-existing test stimulus, assertions, and expected values. Thirteen processor
-testbenches changed only their internal observation paths. Fresh validation
-passed integrated Verilator lint, all nineteen directed regression tests, and
-all nineteen default ISA-lite cases, with no Verilator warnings or errors.
-After loading the new modules and restarting the bundled Slang language server,
-VS Code's Problems panel also reported zero errors and zero warnings. Slang's
-default time scale is configured to match the testbenches; see the
-[editor configuration](../.slang/README.md).
-This verifies the existing covered behavior through the new hierarchy; it does
-not add instruction coverage or establish formal equivalence.
+When I split the core into stage modules on 2026-10-28, the leaf modules and
+all test stimulus, assertions and expected values stayed the same. Thirteen
+processor testbenches only changed their observation paths.
 
-## How to Run the Baseline
+## ISA-Lite
 
-Run the regression with `cocotb-config` on `PATH`, which its Cocotb step
-needs:
+`sim/run_isa_lite.sh` runs 19 upstream `rv32ui` tests: `addi`, `slti`,
+`sltiu`, `andi`, `ori`, `xori`, `slli`, `srli`, `srai`, `lui`, `auipc`, `jal`,
+`jalr`, `beq`, `bne`, `blt`, `bge`, `bltu` and `bgeu`. The upstream
+environment expects trap vectors, `ecall` and `tohost`, which my core doesn't
+fully support. So I wrote a small replacement in
+`software/tests/riscv_lite/env/riscv_test.h` that keeps the upstream macro
+names and reports the result in `x31`. The
+[riscv_lite README](../software/tests/riscv_lite/README.md) explains the
+macros and the `x31` codes.
 
-```bash
-bash sim/run_regression.sh
+```text
+upstream rv32ui/*.S
+  + local riscv_lite/riscv_test.h
+  + upstream scalar macros
+  -> riscv64-elf-gcc (assemble and link)
+  -> ELF
+  -> riscv64-elf-objdump
+  -> awk pulls out the instruction words
+  -> programs/hex/riscv_lite/*.hex
+  -> $readmemh loads instr_mem
+  -> the pipeline runs the program
+  -> x31 reports pass or fail
 ```
 
-Run the selected upstream RV32UI ISA-lite tests:
+Most `rv32ui` tests are thin wrappers around shared `rv64ui` bodies. That's
+how upstream organizes them, and `-march=rv32i -mabi=ilp32` makes the macros
+pick RV32 behavior.
 
-```bash
-bash sim/run_isa_lite.sh
-```
+A test goes into the default set only if it builds with my environment, fits
+in the 256-word instruction memory, needs no initialized data memory or
+official privileged environment, and I've seen it pass on the current
+pipeline. The runner stops with an error when a test needs more than 256
+instruction words. A test can't pass just because part of it was cut off.
 
-Run one ISA-lite test by name:
+## Debugging an ISA-Lite Failure
 
-```bash
-bash sim/run_isa_lite.sh ori
-```
+When `bash sim/run_isa_lite.sh ori` fails, the problem isn't automatically in
+ORI decode or the ALU. An integrated test can fail anywhere from decode to
+writeback, or because of the program image or the test environment. Work
+through it in this order.
 
-The ISA-lite runner builds each selected upstream `rv32ui` test through `software/scripts/build_riscv_lite_test.sh`, extracts the instruction words into `programs/hex/riscv_lite/`, loads the resulting `.hex` file into instruction memory, and uses `tb/core_isa_lite_tb.sv` to watch `x31` for pass/fail completion.
+1. Read `x31`. If it's odd and greater than 1, the failing test number is
+   `(x31 - 1) / 2`.
+2. Open the dump under `sim/build/riscv_lite/` and the source under
+   `tools/riscv-tests/isa/rv32ui/`.
+3. Find the macro or instruction sequence for that test number.
+4. Cut it down to the smallest local smoke program that still fails.
+5. Match the symptom to a layer.
+   - A wrong value from an isolated `ori` with stable operands points at
+     `control_unit`, `imm_ext`, `alu_op` or writeback selection.
+   - A failure only when a source was written by one of the previous two
+     instructions points at forwarding or the load-use stall.
+   - If a branch decides the failure path, check the branch compare, target
+     generation and redirect flushing.
+   - If `x31` never changes and the test times out, check program loading,
+     reset and the PC, and jump loops.
+   - An impossible test number means something overwrote `x3`. The
+     environment keeps `TESTNUM` in `gp` (`x3`), an ordinary register, so a
+     test that writes `x3` or a CPU bug that writes the wrong destination
+     corrupts the reported number.
+   - If the source needs data memory, traps, CSRs or `ecall`, count it as an
+     environment mismatch. The core may be fine.
+6. After the fix, run the focused test and the full regression.
 
-Directed SV testbenches support optional VCD output through `TRACE=1`; tracing is
-disabled by default. Waveforms help inspect timing and signal interactions,
-while pass/fail remains determined by the testbench checks. See the
-[waveform guide](../sim/README.md#waveforms) for commands and output paths.
+The dump shows the failing instruction stream, not the root cause. For signal
+timing, rerun with `TRACE=1 bash sim/run_isa_lite.sh ori`, which writes
+`sim/build/riscv_lite/verilator/ori/rv32ui_ori.vcd`.
 
 ## Directed Testbench Style
 
-Directed SystemVerilog unit tests should favor readability over compact
-parameterization. Keep one instruction or one behavior per task. The preferred
-task shape is:
+I write directed SystemVerilog tests for readability, even when a
+parameterized version would be shorter. Each task covers one instruction or
+one behavior:
 
 ```systemverilog
 task automatic test_example_instr();
@@ -218,154 +237,39 @@ task automatic test_example_instr();
 endtask
 ```
 
-Keep reusable assertion/check tasks at the bottom of the testbench, but avoid
-hiding instruction stimulus inside generic parameterized execution helpers.
-The test body should show the reset/default step, direct inputs, propagation
-delay, and checks explicitly.
+Reusable check tasks go at the bottom of the testbench. I don't hide stimulus
+inside generic helpers. Each test shows its default step, its inputs, the
+propagation delay and its checks. A failed check stops with `$fatal(1, ...)`,
+and a passing test ends with `$finish`. Waveforms from `TRACE=1` are only for
+looking at timing. Pass or fail always comes from the checks.
 
-## Directory Roles
+## Run Log
 
-`programs/asm/` contains the local hand-written processor-level test programs. Files such as `programs/asm/smoke_alu.s` and `programs/asm/smoke_branch.s` capture stable test intent and belong to this project. Their matching images under `programs/hex/` are the instruction-memory inputs used by the smoke testbenches. `sim/build_hex.sh` defaults to `programs/hex/<source-basename>.hex` when no output path is supplied.
+The last runs I recorded:
 
-`sim/build/programs/` contains build output. Scripts such as `sim/build_hex.sh` take files from `programs/asm/` and generate temporary `.elf`, `.dump`, and preprocessed assembly files under `sim/build/programs/`. These files are useful for debugging and disassembly, but they can be deleted and regenerated at any time.
+| Date | What I ran | Result |
+| --- | --- | --- |
+| 2026-10-28 | After the stage split: integrated Verilator lint, the 19 directed tests and the 19 default ISA-lite tests | All passed, with no Verilator warnings or errors |
+| 2026-11-20 | The Cocotb regfile test with seeds 1, 42 and 2026, then the full regression | Both passed |
+| 2026-11-21 | The 19 default ISA-lite tests | All passed |
 
-For the selected upstream `riscv-tests` flow, the external source lives under the ignored `tools/riscv-tests/` tree and the local adaptation is tracked under `software/tests/riscv_lite/`. Generated instruction images go to the ignored `programs/hex/riscv_lite/` directory; `.elf`, `.dump`, and simulator output stay under the ignored `sim/build/riscv_lite/` directory.
+## Known Gaps
 
-## riscv-tests Integration
-
-The upstream `riscv-tests` repository lives under `tools/riscv-tests/` and should remain unchanged. This project provides a lightweight local environment in `software/tests/riscv_lite/env/riscv_test.h`.
-
-The official test sources expect environment macros such as
-`RVTEST_CODE_BEGIN`, `RVTEST_PASS`, `RVTEST_FAIL`, and `TESTNUM`. The official
-environment normally relies on a broader privileged and host-reporting contract,
-including CSR setup, trap vectors, `ecall`, and `tohost`. The current core has a
-basic CSR/trap path, but it does not implement that complete environment
-contract.
-
-The local environment keeps the same macro names but uses a different completion protocol:
-
-- `x31 = 1` means the test passed.
-- `x31 = 2` means the test failed before a numbered test case was available.
-- Odd values greater than 1 encode the failing test number as `(x31 - 1) / 2`.
-
-This keeps the ISA-lite tests independent of privileged behavior and lets them
-focus on the integer pipeline. It also means that this is not a full upstream
-`riscv-tests` integration.
-
-`TESTNUM` is an ordinary architectural register, not protected testbench state. In this environment, it is defined as `gp`, or `x3`. Each upstream `TEST_*` macro writes the current test number into `x3` before running its instruction sequence, and the shared failure path encodes the current `x3` value into `x31`.
-
-This convention works only if both the test body and the CPU preserve `x3` until the failure path reads it. The upstream integer macros are written with that rule in mind and normally avoid using `x3` as a test destination. If a custom test writes `x3`, or a CPU bug writes to the wrong destination register and corrupts `x3`, the decoded failure number may be misleading. An impossible or suspicious test number is therefore evidence that `TESTNUM` itself may have been clobbered.
-
-## Build Flow
-
-The ISA-lite flow is:
-
-```text
-upstream rv32ui/*.S
-  + local riscv_lite/riscv_test.h
-  + upstream scalar macros
-  -> riscv64-elf-gcc / assembler / linker
-  -> ELF file
-  -> riscv64-elf-objdump
-  -> awk extracts instruction words
-  -> programs/hex/riscv_lite/*.hex
-  -> $readmemh initializes instr_mem
-  -> pipeline executes program
-  -> x31 reports pass or fail
-```
-
-The current `.hex` files initialize instruction memory only. This flow does not load ELF data sections into data memory, which is the main reason load/store-heavy upstream tests are not part of the default ISA-lite set yet.
-
-## Tests Included by Default
-
-The default ISA-lite list should include only cases that meet all of these conditions:
-
-- The test builds with the local `riscv_lite` environment.
-- The generated instruction image fits in the current 256-word instruction memory.
-- The test does not require initialized data memory or depend on the official
-  privileged pass/fail environment.
-- The test has been run and observed passing on the current pipeline.
-
-The current safe category covers integer ALU and ALU-immediate operations,
-branches, jumps, `lui`, and `auipc`. Official load/store tests should wait until
-the flow can initialize data memory from ELF sections or an explicit
-data-memory image. The core has directed misaligned-access trap tests, but the
-official misalignment cases should wait until the ISA-lite environment can
-support their complete trap contract. `fence_i` should wait until
-instruction-cache coherence becomes meaningful.
-
-## Instruction Memory Limit
-
-`rtl/memory/instr_mem.sv` currently holds 256 instruction words. If an upstream test expands beyond 256 instructions, the flow should reject it instead of silently truncating it.
-
-This is a testbench capacity issue, not an ISA correctness issue. Truncation can remove part of the control flow, including pass/fail paths, later test cases, or branch targets. The program could then pass for the wrong reason, fail in a misleading way, or jump into uninitialized memory.
-
-The right fix is either to increase instruction-memory capacity intentionally or to write a smaller local program that checks the same behavior.
-
-## Debugging an ISA-Lite Failure
-
-If a command such as this fails:
-
-```bash
-bash sim/run_isa_lite.sh ori
-```
-
-do not immediately assume that ORI decode or the ALU is broken. An integrated ISA test can fail because of decode, immediate generation, ALU operation, forwarding, branch behavior, writeback, instruction-memory setup, or the lightweight test environment.
-
-Use this order:
-
-1. Read the failure code from `x31`. If it is an odd value greater than 1, calculate the failing test number with `(x31 - 1) / 2`.
-2. Open the generated dump under `sim/build/riscv_lite/` and the upstream source under `tools/riscv-tests/isa/rv32ui/`.
-3. Find the small source macro or instruction sequence that matches the failing test number.
-4. Reduce that sequence to the smallest local smoke program that still fails.
-5. Decide which layer could own the failure:
-   - If an isolated `ori` produces the wrong value with stable operands, check `control_unit`, `imm_ext`, `alu_op`, and writeback selection.
-   - If the operation fails only when a source register was written by one of the previous two instructions, suspect forwarding or load-use stall behavior.
-   - If `bne` or another branch controls the expected failure path, check branch comparison, branch-target generation, and redirect flushing.
-   - If `x31` never changes and the test times out, check program loading, reset/PC behavior, jump loops, and whether the generated program exceeded instruction-memory capacity.
-   - If the decoded test number is impossible, unexpected, or points to the wrong source block, check whether the program or a writeback-destination bug overwrote `x3`/`TESTNUM`.
-   - If the official source expects data memory, traps, CSR behavior, or `ecall`, classify the result as a test-environment mismatch rather than a core-execution bug.
-6. After fixing the issue, run both the focused test and the full regression.
-
-The dump identifies the failing instruction stream, not the root cause by itself. Find the root cause by reducing the sequence and matching the symptom to the smallest module or integration boundary that can explain it.
-
-When signal timing is needed, rerun the failing case with tracing, for example
-`TRACE=1 bash sim/run_isa_lite.sh ori`. This writes
-`sim/build/riscv_lite/verilator/ori/rv32ui_ori.vcd`. A `.dump` file is an
-assembly disassembly listing; a `.vcd` file records simulation signal changes.
-
-## Issues Encountered During Integration
-
-The upstream environment could not be used directly because it assumes a
-privileged trap and host-reporting contract that this project does not fully
-implement. The lightweight environment was introduced during Phase 3 so the
-integer pipeline could report pass or fail using ordinary RV32I instructions.
-
-The `rv32ui` tests are often wrappers around shared `rv64ui` bodies. This is normal upstream organization, not evidence that the wrong tests were cloned. The macros select RV32 behavior when assembled with `-march=rv32i -mabi=ilp32`.
-
-The project currently extracts only executable instruction words from the ELF dump. That is enough for ALU, branch, and jump tests, but not for official tests that rely on initialized `.data` contents.
-
-Some otherwise useful tests are too large for the current 256-word instruction memory. Skip them until the memory capacity or test program is changed intentionally.
-
-## Baseline Status
-
-Phase 3 is complete as a focused verification milestone: the project has
-module tests, program-level pipeline smokes, a unified directed runner, and a
-lightweight path for selected upstream RV32UI tests. The minimum Phase 4
-CSR/trap/timer path now extends that same baseline with directed system tests.
-
-A passing run supports those specific claims only. It does not establish full
-ISA or privileged compliance, and skipped upstream tests still need an explicit
-reason.
-
-## Next Verification Work
-
-The next useful improvements are:
-
-- Add a data-memory image flow so official load/store tests can run without hand-written setup code.
-- Increase instruction-memory capacity intentionally or make it configurable per testbench.
-- Add smaller local R-type ALU programs for upstream cases that are currently too large.
-- Broaden unsupported-CSR coverage beyond CSRRW and extend precise-exception side-effect and synchronous-exception/timer collision coverage.
-- Add periodic-timer tests only when readable `mtime` access and next-deadline software exist.
-- Keep module tests focused and readable when a program-level failure exposes a new local bug.
-- Use Cocotb for other modules only when randomized memory latency, broad test matrices, or Cache-specific golden-memory checking makes the extra Python flow worth it.
+- The upstream load/store tests (`lb`, `lw`, `sb`, `sw` and the rest) don't
+  run, because the flow loads only instruction words and skips the ELF data
+  sections.
+- `add` and the other upstream R-type tests don't fit in 256 instruction
+  words. My programs only run `add`, `sub`, `and` and `or` in register form,
+  so `sll`, `srl`, `sra`, `slt`, `sltu` and `xor` only have module-level
+  checks.
+- The upstream misaligned-access tests need the official trap environment,
+  and `fence_i` only matters once there's an instruction cache.
+- Trap coverage is directed. Unsupported CSR access is only tested through
+  `csrrw`, there is one exception and timer collision, and older instructions
+  with side effects in flight are only covered by the cases above.
+- There is no memory wait yet, and no test covers stalls from slow memory.
+- There is no periodic timer test, since software can't read `mtime` yet.
+- The Cocotb test only covers the register file through its ports. Its three
+  seeds with 200 random cycles each are only a sample of the input space.
+- The check after the stage split reran the existing tests through the new
+  hierarchy. It isn't a formal equivalence check.

@@ -8,9 +8,12 @@ current authorization includes those edits.
 ## Current Work Entry Point
 
 Start with [README.md](README.md) for the project overview and
-[the datapath diagram](docs/Datapath_v1.4.2.svg) for data and control flow. The
-[architecture walkthrough](docs/core-architecture.md#datapath-overview) connects
-the drawing to pipeline stages and RTL module responsibilities.
+[the complete datapath diagram](docs/Datapath_v1.5.1.svg) for signal-level data
+and control flow. The README shows a
+[simplified version](docs/Datapath_Simplified_v1.0.1.svg) with bundled signals.
+The [architecture walkthrough](docs/core-architecture.md#datapath-overview)
+connects the complete drawing to pipeline stages and RTL module
+responsibilities.
 
 RTL sources are grouped by responsibility, with [rtl/filelist.f](rtl/filelist.f)
 as the integrated compilation entry point. `rtl/core/core.sv` connects five
@@ -45,11 +48,11 @@ lightweight RTOS integration; the target board is NEXYS Artix-7.
 | `rtl/peripherals/` | Machine timer |
 | `rtl/soc/` | Top-level wrapper, MMIO decoder, system address map |
 | `rtl/filelist.f` | Integrated RTL compilation list; packages precede their users |
-| `tb/` | Directed module and processor testbenches |
+| `tb/` | Directed module and processor testbenches; the Cocotb register-file test in `tb/cocotb/reg_file/` |
 | `programs/` | Local assembly sources in `asm/`; instruction images in `hex/` |
 | `sim/` | Test and build runners; generated output in ignored `sim/build/` |
 | `software/` | Linker script, minimal trap runtime, ISA-lite environment, build scripts |
-| `docs/` | Datapath diagram, architecture, verification, rationale, tool notes, backlog |
+| `docs/` | Datapath diagrams (simplified and complete), architecture, verification, rationale, tool notes, backlog |
 | `docs/plans/` | Roadmap, phase deliverables, exit criteria, understanding checks |
 | `tools/` | External reference checkouts; not project-owned source |
 
@@ -58,9 +61,9 @@ lightweight RTOS integration; the target board is NEXYS Artix-7.
 | Task | Reference |
 | --- | --- |
 | Public overview and quick start | [README.md](README.md) |
-| Pipeline, stage ownership, control and memory behavior | [Datapath diagram](docs/Datapath_v1.4.2.svg); [stage boundaries](docs/core-architecture.md#stage-module-boundaries); inspect `rtl/core/core.sv`, `rtl/core/stages/`, and `rtl/core/core_types_pkg.sv` |
+| Pipeline, stage ownership, control and memory behavior | [Datapath diagram](docs/Datapath_v1.5.1.svg); [stage modules](docs/core-architecture.md#stage-modules); inspect `rtl/core/core.sv`, `rtl/core/stages/`, and `rtl/core/core_types_pkg.sv` |
 | CSR state, precise traps, timer delivery, redirect ownership | [CSR/trap design](docs/csr-trap-design.md) |
-| Test strategy, ISA-lite completion protocol, evidence and gaps | [Verification](docs/verification.md) |
+| Test strategy, evidence and gaps | [Verification](docs/verification.md); ISA-lite macros and `x31` codes in [riscv_lite](software/tests/riscv_lite/README.md) |
 | Running tests and generated-file layout | [Simulation commands](sim/README.md) |
 | Goals, phase status and understanding checks | [Plans](docs/plans/README.md) |
 | Tool-specific usage | [Tool-chain notes](docs/tool-chain-notes/) |

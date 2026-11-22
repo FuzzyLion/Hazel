@@ -1,14 +1,13 @@
 # riscv_lite Test Environment
 
-This directory contains the local test environment introduced in Phase 3 to
-adapt selected `riscv-tests` user-level RV32I programs to this core.
+I added this local test environment in Phase 3 so that selected user-level
+RV32I programs from `riscv-tests` can run on Hazel.
 
-The official `riscv-tests` environment assumes a broader privileged and
-host-reporting contract built around CSR setup, trap vectors, `ecall`, and
-`tohost`. The core now has a basic CSR and trap path, but it does not implement
-that complete contract. The lightweight environment keeps the macro names
-expected by the test sources while expanding them into plain RV32I code that
-does not depend on privileged behavior.
+The official `riscv-tests` environment expects CSR setup, trap vectors, `ecall`
+and `tohost` for reporting results. My core has a basic CSR and trap path, but
+not that whole contract. So this environment keeps the macro names the test
+sources expect and expands them into plain RV32I code with no privileged
+behavior.
 
 ## Directory Roles
 
@@ -77,7 +76,7 @@ This builds each selected upstream source, writes instruction images under
 set is limited to tests that have been observed passing and do not require
 initialized data memory, CSR behavior, traps, or privileged execution.
 
-You can also run a subset by name:
+To run a subset, name the tests:
 
 ```bash
 bash sim/run_isa_lite.sh addi beq

@@ -1,48 +1,36 @@
 # Simulation Scripts
 
-This directory contains the build and execution scripts for directed
-SystemVerilog tests, the Cocotb Regfile test, processor smoke programs, and
-the selected ISA-lite test flow.
-
-## Documentation
-
-Use the following documents as the source of truth for each topic:
-
-- [Project overview and current status](../README.md)
-- [Core architecture](../docs/core-architecture.md)
-- [Verification strategy and test boundaries](../docs/verification.md)
-- [GCC notes](../docs/tool-chain-notes/gcc.md)
-- [GNU ld notes](../docs/tool-chain-notes/ld.md)
-- [Linker script notes](../docs/tool-chain-notes/linker.md)
-- [objcopy notes](../docs/tool-chain-notes/objcopy.md)
-- [objdump notes](../docs/tool-chain-notes/objdump.md)
-- [Verilator notes](../docs/tool-chain-notes/verilator.md)
-- [ISA-lite test environment](../software/tests/riscv_lite/README.md)
-
-This README is only an operational entry point. Detailed tool options,
-verification rationale, failure analysis, and architectural claims belong in
-the linked documents.
+These scripts build and run my tests in Verilator: the module testbenches, the
+Cocotb register-file test, the smoke programs and the ISA-lite tests. What each
+test checks is in [verification](../docs/verification.md).
 
 ## Common Commands
 
-Run the complete regression with the [Cocotb environment](#cocotb-regfile)
-active:
-
 ```bash
-bash sim/run_regression.sh
+bash sim/run_regression.sh      # module tests, smoke programs and the Cocotb runner
+bash sim/run_isa_lite.sh        # the 19 default rv32ui tests
+bash sim/run_isa_lite.sh ori    # one rv32ui test
 ```
 
-Run the selected ISA-lite tests:
+The regression needs the [Cocotb environment](#cocotb-regfile) active, and it
+stops at the first runner that fails.
 
-```bash
-bash sim/run_isa_lite.sh
-```
+## Script Groups
 
-Run one ISA-lite test:
+| Scripts | What they run |
+| --- | --- |
+| `run_control_unit.sh`, `run_imm_ext.sh`, `run_alu_op.sh` | Decode and datapath module tests |
+| `run_pc_target_gen.sh`, `run_hazard_unit.sh` | Redirect and hazard-control module tests |
+| `run_reg_file.sh`, `run_data_mem.sh` | Storage module tests |
+| `run_reg_file_cocotb.sh` | The Cocotb register-file test, once per stimulus seed |
+| `run_basic_smoke.sh`, `run_smoke_*.sh` | Smoke programs on the whole core |
+| `run_isa_lite.sh` | The selected upstream `rv32ui` tests |
+| `run_regression.sh` | Everything above except ISA-lite |
 
-```bash
-bash sim/run_isa_lite.sh ori
-```
+Integrated processor tests compile the RTL through
+[`rtl/filelist.f`](../rtl/filelist.f), whose paths start at the repository
+root. Module tests list only the files they need. When I move a source file, I
+update both the filelist and any module test that names it directly.
 
 ## Cocotb Regfile
 
@@ -57,50 +45,48 @@ bash sim/run_reg_file_cocotb.sh
 ```
 
 The runner calls `make sim` once per stimulus seed, in the order `1`, `42`,
-`2026`, and stops at the first failure. `run_regression.sh` calls the same
-runner. To replay one seed from the repository root:
+`2026`, and stops at the first failure. To replay one seed from the
+repository root:
 
 ```bash
 RF_SEED=42 make -C tb/cocotb/reg_file sim
 ```
 
-Each log shows two seeds, and only `RF_SEED` affects this test. It seeds the
-test's own `random.Random` instance, defaults to `2026`, and appears as
-`Stimulus seed=...`. The startup line
-`Seeding Python random module with ...` comes from Cocotb. Cocotb takes that
-seed from the current time unless `COCOTB_RANDOM_SEED` is set, and the test
+Only `RF_SEED` affects this test. It seeds the test's own `random.Random`,
+defaults to `2026` and shows up in the log as `Stimulus seed=...`. The
+`Seeding Python random module with ...` line comes from Cocotb, which takes
+that seed from the current time unless `COCOTB_RANDOM_SEED` is set. The test
 never draws from the global `random` module. Assertion messages in the random
 loops start with `seed=... cycle=...`, so a failure already names the seed to
 replay.
 
-Build output and `results.xml` go to `sim/build/cocotb_reg_file/`. `make sim`
-deletes and rewrites `results.xml` on every run, so after a full batch it only
-describes the seed `2026` run. Its `random_seed` property is Cocotb's seed,
-not `RF_SEED`.
+Build output and `results.xml` go to `sim/build/cocotb_reg_file/`. Each
+`make sim` rewrites `results.xml`, so after a full batch it only describes the
+seed `2026` run. Its `random_seed` property is Cocotb's seed, not `RF_SEED`.
 
-Cocotb rebuilds the Verilator model only when a listed source is newer than
+Cocotb only rebuilds the Verilator model when a listed source is newer than
 the build. If you point `VERILOG_SOURCES` at another file, such as a mutated
 RTL copy, run `make -C tb/cocotb/reg_file clean` after switching back.
-Otherwise the model built from that file can stay in use.
 
 ## Waveforms
 
-The directed SystemVerilog testbenches support optional VCD output. By default,
-their runners compile and run without tracing. Set `TRACE=1` to enable both
-Verilator tracing and the testbench's `$dumpfile` / `$dumpvars` block:
+Tracing is off by default. `TRACE=1` turns on Verilator tracing and the
+testbench's `$dumpfile`/`$dumpvars` block, `TRACE=0` turns it off, and any
+other value is rejected.
 
 ```bash
 TRACE=1 bash sim/run_data_mem.sh
 gtkwave sim/build/data_mem/data_mem_tb.vcd
 ```
 
-The runner prints the absolute VCD path and saves the file in its own
-`sim/build/<test>/` directory, alongside `obj_dir/`. In particular, Basic and
-Hazard smoke waveforms are `sim/build/basic_smoke/basic_smoke.vcd` and
+Each runner prints the VCD path and saves the file in its own
+`sim/build/<test>/` folder next to `obj_dir/`. The basic and hazard smokes
+write `sim/build/basic_smoke/basic_smoke.vcd` and
 `sim/build/smoke_hazard/hazard_smoke.vcd`.
 
-The same switch applies to the complete regression, where the Cocotb step
-ignores it, and to selected ISA-lite cases:
+The same switch works for the whole regression, where the Cocotb step ignores
+it, and for ISA-lite. ISA-lite writes one VCD per case, so trace only the case
+you're debugging.
 
 ```bash
 TRACE=1 bash sim/run_regression.sh
@@ -108,108 +94,61 @@ TRACE=1 bash sim/run_isa_lite.sh ori
 gtkwave sim/build/riscv_lite/verilator/ori/rv32ui_ori.vcd
 ```
 
-ISA-lite saves a separate VCD for each case. Prefer selecting the case being
-debugged rather than exporting the entire batch. `TRACE=0` explicitly disables
-tracing; other values are rejected. A run without tracing leaves existing VCD
-files untouched, so their presence alone does not prove the latest run exported
-a waveform.
+A run without tracing leaves old VCD files in place, so a VCD on disk doesn't
+mean the last run wrote it.
 
-The shared [`trace.sh`](trace.sh) helper controls compilation and passes the
-output path as `+trace=<absolute-path>`. Each testbench keeps an explicit
-`waveform_dump` block guarded by `TRACE_VCD`, which is defined only for tracing
-builds. When adding a test, follow this pattern and call `run_verilator` and
-`run_simulation` from its runner.
+[`trace.sh`](trace.sh) adds the compile flag and passes the output path as
+`+trace=<path>`. Each testbench has a `waveform_dump` block inside
+`` `ifdef TRACE_VCD ``. A new test should follow the same pattern and call
+`run_verilator` and `run_simulation` from its runner.
 
 ## Building Programs
 
-Build one local assembly program:
-
 ```bash
-bash sim/build_hex.sh \
-  programs/asm/smoke_basic.s \
-  programs/hex/smoke_basic.hex
+bash sim/build_hex.sh programs/asm/smoke_basic.s programs/hex/smoke_basic.hex
+bash sim/build_hex.sh <main.s> <output.hex> <extra.s> ...   # several sources, one image
 ```
 
-If the output argument is omitted, `build_hex.sh` writes
-`programs/hex/<source-basename>.hex`. Keep local assembly sources in
-`programs/asm/`; the shared trap handler remains in `software/runtime/`.
-
-Build an image from multiple assembly sources:
-
-```bash
-bash sim/build_hex.sh \
-  <primary-source.s> \
-  <output.hex> \
-  <additional-source.s> ...
-```
-
-## Script Groups
-
-| Scripts | Purpose |
-| --- | --- |
-| `run_control_unit.sh`, `run_imm_ext.sh`, `run_alu_op.sh` | Focused combinational control and datapath tests |
-| `run_pc_target_gen.sh`, `run_hazard_unit.sh` | Redirect and hazard-control tests |
-| `run_reg_file.sh`, `run_data_mem.sh` | Focused sequential storage tests |
-| `run_reg_file_cocotb.sh` | Cocotb Regfile test, once per stimulus seed |
-| `run_basic_smoke.sh`, `run_smoke_*.sh` | Integrated processor smoke programs |
-| `run_isa_lite.sh` | Selected upstream RV32UI tests |
-| `run_regression.sh` | Unified regression entry point, including the Cocotb runner |
-
-Integrated processor tests compile the RTL through
-[`rtl/filelist.f`](../rtl/filelist.f), whose paths are relative to the repository
-root. Module tests list only the packages and modules they need. When moving a
-source file, update both the RTL filelist and any direct module-test references.
-
-## Program Build Flow
-
-`build_hex.sh` converts local assembly sources into an instruction-memory
-image:
+Without an output argument, `build_hex.sh` writes
+`programs/hex/<source-name>.hex`. My assembly sources live in `programs/asm/`,
+and the shared trap handler stays in `software/runtime/`.
 
 ```text
 assembly sources
-  -> RISC-V GCC, assembler, and linker
-  -> ELF
-  -> dump and map reports
-  -> objcopy Verilog hex
-  -> $readmemh
-  -> instr_mem
+  -> riscv64-elf-gcc (rv32i_zicsr, my linker script)
+  -> ELF, plus dump and map files
+  -> objcopy writes Verilog hex for .text and .trap
+  -> $readmemh loads instr_mem
 ```
 
-The local build uses [`software/linker/core.ld`](../software/linker/core.ld) to
-place `.text` at byte address `0x00000000` and `.trap` at the next aligned
-address after `.text`. See the linker, `ld`, `objcopy`, and `objdump` notes
-above for the details of this flow.
+[`core.ld`](../software/linker/core.ld) puts `.text` at `0x00000000` and
+`.trap` at the next aligned address after it. My notes on GCC, ld, the linker
+script, objcopy, objdump and Verilator are in
+[docs/tool-chain-notes](../docs/tool-chain-notes/).
 
 ## Generated Files
 
-Instruction images are grouped under `programs/hex/`; intermediate compiler
-and simulator output stays under the ignored `sim/build/` directory:
-
 | Path | Contents |
 | --- | --- |
-| `programs/asm/` | Local hand-written assembly sources |
-| `programs/hex/` | Local program instruction images |
-| `programs/hex/riscv_lite/` | Generated upstream ISA-lite instruction images, ignored by Git |
-| `sim/build/programs/` | Preprocessed assembly, ELF, dump, and map files for local programs |
-| `sim/build/<test>/obj_dir/` | Verilator-generated C++ and simulation executables |
-| `sim/build/<test>/*.vcd` | Directed-test waveforms generated with `TRACE=1` |
-| `sim/build/cocotb_reg_file/` | Cocotb Verilator build and the last run's `results.xml` |
-| `sim/build/riscv_lite/` | ISA-lite ELF, dump, and Verilator output |
-| `sim/build/riscv_lite/verilator/<case>/rv32ui_<case>.vcd` | Per-case ISA-lite waveforms generated with `TRACE=1` |
+| `programs/asm/` | My hand-written assembly sources |
+| `programs/hex/` | Instruction images of those programs, tracked in Git |
+| `programs/hex/riscv_lite/` | Generated ISA-lite images, ignored by Git |
+| `sim/build/programs/` | Preprocessed assembly, ELF, dump and map files for my programs |
+| `sim/build/<test>/obj_dir/` | Verilator's C++ and the simulation executables |
+| `sim/build/<test>/*.vcd` | Waveforms from `TRACE=1` |
+| `sim/build/cocotb_reg_file/` | The Cocotb Verilator build and the last run's `results.xml` |
+| `sim/build/riscv_lite/` | ISA-lite ELF, dump and Verilator output |
+| `sim/build/riscv_lite/verilator/<case>/rv32ui_<case>.vcd` | Per-case ISA-lite waveforms from `TRACE=1` |
 
-HEX images and intermediate output can be regenerated from the assembly
-sources. Edit assembly sources, not generated instruction images. The local
-HEX images remain tracked; ISA-lite images and intermediate output are ignored.
+Everything under `sim/build/` is ignored and can be regenerated. Edit the
+assembly sources, never the generated images.
 
-## Build-Path Boundary
+## Two Build Paths
 
-The repository currently has two related but separate program build paths:
+- `sim/build_hex.sh` builds my smoke and trap programs. It uses my linker
+  script and keeps `.text` and `.trap` at separate addresses.
+- `software/scripts/build_riscv_lite_test.sh` builds the ISA-lite tests. It
+  links at address 0 and copies one continuous run of instruction words out of
+  the dump, with no trap or data sections.
 
-- `sim/build_hex.sh` builds local smoke and Phase 4 trap programs. It uses the
-  project linker script and preserves non-contiguous `.text` and `.trap`
-  addresses.
-- `software/scripts/build_riscv_lite_test.sh` builds the selected ISA-lite
-  tests introduced in Phase 3. It currently handles a continuous executable instruction
-  stream and does not load trap or data sections.
-
-Changes to one build path do not automatically apply to the other.
+A change to one of them doesn't carry over to the other.

@@ -7,7 +7,7 @@ Hard limit: 5 weeks
 
 ## Goal
 
-Complete the project's required FPU milestone and integrate the floating-point execution path cleanly into the existing processor architecture.
+I want to finish the required FPU milestone and fit the floating-point path cleanly into the existing processor.
 
 ## Recommended Scope
 
@@ -81,12 +81,10 @@ Decide early:
 
 ## Understanding Check
 
-Use these questions during phase review, grounded in the actual implementation
-and verification evidence. Select the most relevant gaps; do not repeat answers
-already demonstrated in the conversation.
+I should be able to answer these from my own RTL and test results.
 
-1. Why did you choose this FPU scope for the first version?
-2. Is your FPU single-cycle, multi-cycle, or pipelined, and what are the control consequences?
+1. Why did I choose this FPU scope for the first version?
+2. Is my FPU single-cycle, multi-cycle or pipelined, and what does that mean for control?
 3. How does the main pipeline know when FPU results are ready?
 4. What interactions exist between FPU completion, exceptions, and flushes?
-5. What would an interviewer most likely ask about your FPU integration?
+5. What would an interviewer most likely ask me about the FPU integration?
