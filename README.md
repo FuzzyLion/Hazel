@@ -160,3 +160,8 @@ My design notes are on the [core architecture](docs/core-architecture.md),
 I use AI as a tutor and reviewer here. I lead the design, implementation and
 testing, and AI explains, discusses designs with me and reviews my work. The
 rules are in [AGENTS.md](AGENTS.md).
+
+## License
+
+Hazel is under the [MIT License](LICENSE), so you can reuse the code as long
+as you keep the copyright notice.
