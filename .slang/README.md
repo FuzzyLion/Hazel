@@ -22,10 +22,12 @@ The editor needs UVM 2020.3.1 in `tools/uvm-core-2020.3.1/`, set up as in
 [tools/README.md](../tools/README.md#uvm). I keep it inside the workspace so
 the bundled WASM runtime can read it.
 
-Slang and the VS Code Verilator linter both read [`uvm_lib.f`](uvm_lib.f). It
-defines `UVM_NO_DPI`, adds the UVM include path and loads `uvm_pkg`, then
-`regfile_pkg`. The linter appends the open file after these packages, so a
-testbench file can import them. `server.json` indexes only the top of the UVM
+Slang, the VS Code Verilator linter and the UVM runner all read
+[`tb/uvm/uvm_lib.f`](../tb/uvm/uvm_lib.f). It defines `UVM_NO_DPI`, adds the
+UVM include path and loads `uvm_pkg`, then `regfile_pkg`. The linter appends
+the open file after these packages, so a testbench file can import them. That
+is also why the list holds only packages. A testbench top listed there would
+be compiled twice when I open it. `server.json` indexes only the top of the UVM
 `src/` folder, so Slang can find `uvm_pkg` for a tab that is already open when
 VS Code starts. The subfolders stay out of the index because `uvm_pkg.sv`
 pulls them in through includes.
@@ -33,8 +35,10 @@ pulls them in through includes.
 Paths in these lists start at the repository root. When I add a UVM file,
 shared packages go into `uvm_lib.f` in dependency order, and testbench tops go
 into the [RegFile file list](../tb/uvm/reg_file/filelist.f).
-[`sim/run_reg_file_uvm.sh`](../sim/run_reg_file_uvm.sh) still names its own
-files, so it needs the same change.
+[`sim/run_reg_file_uvm.sh`](../sim/run_reg_file_uvm.sh) compiles that same
+file list, so the editor and the simulation always see the same files. Both
+lists live under `tb/uvm/` rather than here, so the simulation never depends
+on the editor setup.
 
 When I started the UVM testbench, VS Code showed more than 2000 warnings, some
 inside the UVM library and some from Verilator lint.

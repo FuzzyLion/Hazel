@@ -14,13 +14,11 @@ uvm_src="$PWD/tools/uvm-core-2020.3.1/src"
 
 verilator --binary --timing -j 2 -Wno-fatal \
   -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-  --timescale-override 1ns/1ps +define+UVM_NO_DPI \
+  --timescale-override 1ns/1ps \
   --top-module regfile_item_tb \
   --Mdir "$SIM_BUILD_DIR/obj_dir" \
-  "+incdir+$uvm_src" "$uvm_src/uvm_pkg.sv" \
   -o regfile_item_tb \
-  tb/uvm/reg_file/regfile_item.sv \
-  tb/uvm/reg_file/regfile_item_tb.sv
+  -f tb/uvm/reg_file/filelist.f
 
 sim_bin="$SIM_BUILD_DIR/obj_dir/regfile_item_tb"
 
