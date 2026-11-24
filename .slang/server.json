@@ -18,8 +18,12 @@
         "sim",
         "node_modules"
       ]
+    },
+    {
+      "dirs": ["tools/uvm-core-2020.3.1/src"],
+      "excludeDirs": ["base", "comps", "dap", "deprecated", "dpi", "macros", "reg", "seq", "tlm1", "tlm2"]
     }
   ],
-  "build": "rtl/filelist.f",
-  "flags": "--timescale=1ns/1ps"
+  "build": ".slang/uvm.f",
+  "flags": "--timescale=1ns/1ps --waiver-file .slang/uvm_warnings.toml"
 }

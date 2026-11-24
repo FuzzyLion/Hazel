@@ -21,6 +21,9 @@ programs/hex/riscv_lite/
 # Third-party riscv-tests
 tools/riscv-tests/
 
+# Third-party UVM reference implementation (local dependency)
+tools/uvm-core-2020.3.1/
+
 # Not-important notes
 mock-interview-log.md
 docs/notes/phase-0-review.md

@@ -1,0 +1,2 @@
+-f rtl/filelist.f
+-f tb/uvm/reg_file/filelist.f
