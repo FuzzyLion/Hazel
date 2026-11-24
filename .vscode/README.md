@@ -5,7 +5,7 @@ This directory contains the shared VS Code configuration for the project. The go
 `settings.json` keeps two complementary checks enabled:
 
 - The Slang language server provides fast SystemVerilog syntax and semantic diagnostics, symbol lookup, and go-to-definition while editing.
-- Verilator lint checks the complete core compilation view through `rtl/filelist.f`. It is better at exposing cross-module port, width, package, and combinational-logic issues. It loads [`.slang/uvm_lib.f`](../.slang/uvm_lib.f) first, which lets UVM testbench files import their packages but also means it needs [UVM in `tools/`](../tools/README.md#uvm) even for RTL files.
+- Verilator lint checks the complete core compilation view through `rtl/filelist.f`. It is better at exposing cross-module port, width, package, and combinational-logic issues. It loads [`tb/uvm/uvm_lib.f`](../tb/uvm/uvm_lib.f) first, which lets UVM testbench files import their packages but also means it needs [UVM in `tools/`](../tools/README.md#uvm) even for RTL files.
 
 The two tools overlap, but they do not replace each other. Slang keeps the editor responsive; Verilator is closer to the project's actual RTL compilation and elaboration flow. Functional correctness still needs the directed tests or regression under `sim/`.
 
