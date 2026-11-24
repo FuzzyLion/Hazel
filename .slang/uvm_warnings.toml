@@ -1,0 +1,33 @@
+# Reviewed warnings from the Accellera UVM 2020.3.1 reference sources.
+[[waivers]]
+file = "**/tools/uvm-core-2020.3.1/src/**"
+diagnostic = [
+  "unused-class-method", "unused-class-property", "unused-constructor",
+  "unused-local-class-method", "unused-local-class-property",
+  "unused-but-set-property", "unused-but-set-local-property",
+  "unused-variable", "unused-but-set-variable", "unused-argument",
+  "unused-parameter", "unused-package-parameter", "unused-package-type-parameter",
+  "unused-package-subroutine", "unused-package-typedef", "unused-package-var",
+  "unused-import", "sign-conversion", "width-expand", "width-trunc",
+  "arith-op-mismatch", "int-bool-conv", "dynamic-cast-const",
+  "shadow-property", "incomplete-return",
+  "shadow-value", "shadow-hierarchy", "bitwise-op-mismatch", "sign-compare",
+  "case-default", "case-type", "case-enum-explicit", "case-enum",
+  "unused-typedef", "unassigned-variable", "unassigned-property",
+  "unassigned-local-property", "float-int-conv", "int-float-conv",
+  "constant-conversion", "logical-op-parentheses", "useless-cast", "empty-stmt",
+  "comparison-mismatch", "empty-pattern", "nonstandard-escape-code",
+  "unknown-escape-code", "dangling-else", "inc-dec-bit", "signed-logical-shift",
+  "loop-var-modify",
+]
+
+# Match the macro invocation, not handwritten testbench statements.
+[[waivers]]
+file = "**/tb/uvm/**/*.sv"
+regex = '^\s*`uvm_(field_|object_utils|component_utils)'
+diagnostic = [
+  "unused-class-method", "unused-class-property", "unused-variable",
+  "unused-but-set-variable", "unused-parameter", "sign-conversion",
+  "width-expand", "width-trunc", "arith-op-mismatch", "int-bool-conv",
+  "unused-typedef", "case-default",
+]
