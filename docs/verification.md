@@ -252,6 +252,7 @@ The last runs I recorded:
 | 2026-10-28 | After the stage split: integrated Verilator lint, the 19 directed tests and the 19 default ISA-lite tests | All passed, with no Verilator warnings or errors |
 | 2026-11-20 | The Cocotb regfile test with seeds 1, 42 and 2026, then the full regression | Both passed |
 | 2026-11-21 | The 19 default ISA-lite tests | All passed |
+| 2026-11-26 | The full regression after upgrading Verilator from 5.046 to 5.054 and deleting `sim/build` | All passed |
 
 ## Known Gaps
 
