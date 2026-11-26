@@ -1,11 +1,10 @@
-`include "uvm_macros.svh"
-
 package regfile_pkg;
     import uvm_pkg::*;
+    `include "uvm_macros.svh"
 
     class regfile_item extends uvm_sequence_item;
 
-        rand bit we;
+        rand bit we, reset;
         rand logic [4:0] rd, rs1, rs2;
         rand logic [31:0] wdata;
 
@@ -13,6 +12,7 @@ package regfile_pkg;
         /* verilator lint_off WIDTHEXPAND */
         /* verilator lint_off WIDTHTRUNC */
         `uvm_object_utils_begin(regfile_item)
+            `uvm_field_int(reset, UVM_DEFAULT)
             `uvm_field_int(we, UVM_DEFAULT)
             `uvm_field_int(rd, UVM_DEFAULT)
             `uvm_field_int(wdata, UVM_DEFAULT)
