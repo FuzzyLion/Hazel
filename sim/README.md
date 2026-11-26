@@ -15,6 +15,17 @@ bash sim/run_isa_lite.sh ori    # one rv32ui test
 The regression needs the [Cocotb environment](#cocotb-regfile) active, and it
 stops at the first runner that fails.
 
+Each runner keeps its Verilator build in `sim/build/<test>/obj_dir/` and
+reuses it on the next run. When I upgraded Verilator from 5.046 to 5.054, the
+first runner stopped with `No rule to make target` and a path into the removed
+5.046 install, because the make dependency files in `obj_dir/` still pointed
+there. After an upgrade I delete the build folder once, and the next run
+rebuilds everything with the new version:
+
+```bash
+rm -rf sim/build
+```
+
 ## Script Groups
 
 | Scripts | What they run |
@@ -35,7 +46,7 @@ update both the filelist and any module test that names it directly.
 ## Cocotb Regfile
 
 Besides Verilator and a C++ compiler, the test needs GNU Make and Cocotb 2.x.
-I run it with Cocotb 2.1.0 and Verilator 5.046. The Makefile asks
+I run it with Cocotb 2.1.0 and Verilator 5.054. The Makefile asks
 `cocotb-config` where Cocotb's makefiles are, so activate the Python
 environment first. With a virtual environment in `.venv/`, which Git ignores:
 
