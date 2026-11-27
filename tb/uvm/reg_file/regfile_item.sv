@@ -6,7 +6,8 @@ package regfile_pkg;
 
         rand bit we, reset;
         rand logic [4:0] rd, rs1, rs2;
-        rand logic [31:0] wdata;
+        rand logic [31:0] wdata; 
+        logic [31:0] rs1_val, rs2_val;
 
         // UVM uses wide packer and comparer arguments for every field.
         /* verilator lint_off WIDTHEXPAND */
@@ -18,6 +19,8 @@ package regfile_pkg;
             `uvm_field_int(wdata, UVM_DEFAULT)
             `uvm_field_int(rs1, UVM_DEFAULT)
             `uvm_field_int(rs2, UVM_DEFAULT)
+            `uvm_field_int(rs1_val, UVM_DEFAULT)
+            `uvm_field_int(rs2_val, UVM_DEFAULT)
         `uvm_object_utils_end
         /* verilator lint_on WIDTHTRUNC */
         /* verilator lint_on WIDTHEXPAND */

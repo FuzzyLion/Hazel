@@ -1,0 +1,8 @@
+`verilator_config
+// regfile_driver drives these six inputs through its virtual interface.
+lint_off -rule UNDRIVEN -file "*tb/uvm/reg_file/regfile_interface.sv" -match "*'reset'*"
+lint_off -rule UNDRIVEN -file "*tb/uvm/reg_file/regfile_interface.sv" -match "*'we'*"
+lint_off -rule UNDRIVEN -file "*tb/uvm/reg_file/regfile_interface.sv" -match "*'rd'*"
+lint_off -rule UNDRIVEN -file "*tb/uvm/reg_file/regfile_interface.sv" -match "*'wdata'*"
+lint_off -rule UNDRIVEN -file "*tb/uvm/reg_file/regfile_interface.sv" -match "*'rs1'*"
+lint_off -rule UNDRIVEN -file "*tb/uvm/reg_file/regfile_interface.sv" -match "*'rs2'*"

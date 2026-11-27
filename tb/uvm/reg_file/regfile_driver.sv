@@ -1,4 +1,3 @@
-`timescale 1ns/1ps
 `include "uvm_macros.svh"
 
 package regfile_driver_pkg;
@@ -16,6 +15,7 @@ package regfile_driver_pkg;
         virtual function void build_phase(uvm_phase phase);
             super.build_phase(phase);
             if (!uvm_config_db#(virtual regfile_if)::get(this, "", "vif", vif)) begin
+                // Bind this virtual interface handle to the shared physical interface in tb_top
                 `uvm_fatal("NOVIF", "regfile_driver could not get vif from uvm_config_db")
             end
         endfunction
